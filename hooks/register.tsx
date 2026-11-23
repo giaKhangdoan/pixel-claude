@@ -422,21 +422,6 @@ const bubbleCv = (W: number, H: number, tailLeft: boolean) => {
   return c
 }
 
-const GLYPH: Record<string, string> = {
-  A: '010101111101101',
-  B: '110101110101110',
-  L: '100100100100111',
-}
-const label = (t: string, x: number, y: number, color: string) => {
-  const c = new Cv(t.length * 4, 5)
-  ;[...t].forEach((ch, i) =>
-    [...(GLYPH[ch] ?? '')].forEach((v, k) => {
-      if (v === '1') c.set(i * 4 + (k % 3), Math.floor(k / 3), color)
-    }),
-  )
-  return c.svg(x, y)
-}
-
 // One continuous strip of grass and soil across the whole stage. Everybody stands on it.
 // `back` is the ground itself; `front` is a few blades of grass drawn in front of the feet.
 const groundCv = (w: number, h: number) => {
@@ -462,6 +447,103 @@ const groundCv = (w: number, h: number) => {
   return { back, front }
 }
 const GROUND = groundCv(160, 46)
+
+// ---------- Vietnamese pixel text: a 6x10 bitmap font cut from a bold mono face ----------
+const VF: Record<string, readonly number[]> = {
+  "!": [0,8,8,8,8,8,0,8,0,0],
+  ",": [0,0,0,0,0,0,8,8,16,0],
+  "?": [0,14,18,2,4,8,0,8,0,0],
+  "a": [0,0,0,14,2,30,18,30,0,0],
+  "b": [16,16,16,28,18,18,18,28,0,0],
+  "c": [0,0,0,14,16,16,16,14,0,0],
+  "d": [2,2,2,14,18,18,18,14,0,0],
+  "e": [0,0,0,12,18,30,16,14,0,0],
+  "g": [0,0,0,14,18,18,18,14,2,14],
+  "h": [16,16,16,30,18,18,18,18,0,0],
+  "i": [8,8,0,24,8,8,8,62,0,0],
+  "k": [16,16,16,20,24,28,20,22,0,0],
+  "l": [24,8,8,8,8,8,8,14,0,0],
+  "m": [0,0,0,62,42,42,42,42,0,0],
+  "n": [0,0,0,30,18,18,18,18,0,0],
+  "o": [0,0,0,12,18,18,18,12,0,0],
+  "r": [0,0,0,30,16,16,16,16,0,0],
+  "s": [0,0,0,30,16,28,2,30,0,0],
+  "t": [0,0,8,30,8,8,8,14,0,0],
+  "u": [0,0,0,18,18,18,18,30,0,0],
+  "v": [0,0,0,18,18,18,12,12,0,0],
+  "y": [0,0,0,18,30,12,12,12,8,24],
+  "à": [16,8,0,14,2,30,18,30,0,0],
+  "â": [8,20,0,14,2,30,18,30,0,0],
+  "ã": [10,20,0,14,2,30,18,30,0,0],
+  "è": [16,8,0,12,18,30,16,14,0,0],
+  "ê": [8,20,0,12,18,30,16,14,0,0],
+  "ì": [16,8,0,24,8,8,8,62,0,0],
+  "í": [4,8,0,24,8,8,8,62,0,0],
+  "ó": [4,8,0,12,18,18,18,12,0,0],
+  "ô": [12,18,0,12,18,18,18,12,0,0],
+  "đ": [2,2,7,14,18,18,18,14,0,0],
+  "ơ": [0,0,13,18,18,18,12,0,0,0],
+  "ư": [0,0,37,38,36,36,60,0,0,0],
+  "ả": [8,4,0,14,2,30,18,30,0,0],
+  "ấ": [8,20,0,14,2,30,18,30,0,0],
+  "ậ": [8,20,0,14,2,30,18,30,0,8],
+  "ẹ": [0,0,0,12,18,30,16,14,0,8],
+  "ệ": [8,20,0,12,18,30,16,14,0,8],
+  "ồ": [12,18,0,12,18,18,18,12,0,0],
+  "ộ": [8,20,0,12,18,18,18,12,0,8],
+  "ớ": [4,8,0,13,18,18,18,12,0,0],
+  "ờ": [16,8,0,13,18,18,18,12,0,0],
+  "ụ": [0,0,0,18,18,18,18,30,0,8],
+  "ủ": [8,4,0,18,18,18,18,30,0,0],
+  "ừ": [32,16,0,37,38,36,36,60,0,0],
+  "ử": [0,0,0,37,38,36,36,60,0,0],
+  "ữ": [20,40,0,37,38,36,36,60,0,0],
+}
+const VADV = 6
+const VH = 10
+const HERO_SAY = ["dậy làm đi mày!", "ngủ đủ chưa mày?", "lười vừa thôi!", "tới giờ cày rồi!", "đừng giả vờ ngủ!", "dậy mau, trả lương đó!", "ngủ hoài vậy cha nội?", "deadline tới đít rồi!", "ê dậy, việc chờ kìa!", "làm lẹ lên con!"]
+const CLAUDE_SAY = ["dậy làm đi mày!", "tụi bây ngủ đủ rồi!", "việc nè, đừng có than!", "đừng giả vờ ngủ nha!", "làm lẹ, tao đang chờ!", "ngủ nữa là mất lương!", "lười thì đi sửa bug!", "cày đi, đừng cãi tao!"]
+
+// words wrap at `maxChars` characters per line
+const wrapText = (t: string, maxChars: number): string[] => {
+  const lines: string[] = []
+  let cur = ''
+  for (const w of t.split(' ')) {
+    if (cur !== '' && cur.length + 1 + w.length > maxChars) {
+      lines.push(cur)
+      cur = w
+    } else cur = cur === '' ? w : `${cur} ${w}`
+  }
+  if (cur !== '') lines.push(cur)
+  return lines
+}
+
+// A speech bubble whose words pop in one after another. Returns the markup and its box.
+const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bottom: number) => {
+  const lines = wrapText(text, 11)
+  const cols = Math.max(...lines.map(l => l.length))
+  const W = cols * VADV - 1 + 6
+  const H = lines.length * (VH + 1) + 3
+  const x = atX(W)
+  const y = bottom - 3 - H
+  let out = bubbleCv(W, H, tailLeft).svg(x, y)
+  let k = 0
+  lines.forEach((line, i) => {
+    let at = 0
+    for (const word of line.split(' ')) {
+      const c = new Cv(word.length * VADV, VH)
+      ;[...word].forEach((ch, n) =>
+        (VF[ch] ?? []).forEach((bits, row) => {
+          for (let b = 0; b < VADV; b++) if ((bits >> (VADV - 1 - b)) & 1) c.set(n * VADV + b, row, '#1a1c2c')
+        }),
+      )
+      out += `<g class="wd" style="animation-delay:${(0.1 + 0.28 * k).toFixed(2)}s">${c.svg(x + 3 + at * VADV, y + 2 + i * (VH + 1))}</g>`
+      at += word.length + 1
+      k++
+    }
+  })
+  return out
+}
 
 const SPARK = new Cv(5, 5)
 ;[[2, 0], [2, 1], [0, 2], [1, 2], [2, 2], [3, 2], [4, 2], [2, 3], [2, 4]].forEach(([x, y]) => SPARK.set(x!, y!, '#ffd45e'))
@@ -612,7 +694,7 @@ const heroArms = (pose: Pose) => {
 }
 
 const HX = 1
-const HY = 27 // the shoes end 45 rows below the top of the person's sprite, so this puts them on the ground (FLOOR = 72)
+const HY = 39 // the shoes end 45 rows below the top of the person's sprite, so this puts them on the ground (GH = 84)
 const heroPose = (pose: Pose) => {
   const wide = pose === 'W1' || pose === 'W2' || pose === 'W3'
   const dx = pose === 'A' ? -2 : pose === 'B' ? 2 : 0
@@ -629,7 +711,7 @@ const HAND: Record<'W1' | 'W2' | 'W3', [number, number]> = {
 
 // ---------- scene pieces ----------
 const FLOOR = 72 // the ground line; every character stands on it
-const GH = 72 // height of both character groups (their bottom edge is the floor)
+const GH = 84 // height of both character groups (their bottom edge is the floor; the top is headroom for three-line speech bubbles)
 const LW = 72 // left group: the person, then Claude's bed
 const RW = 94 // right group: Codex, DeepSeek and ChatGPT, side by side
 const KD = 0.5 // design scale (root units per local unit)
@@ -703,30 +785,27 @@ const whipPts = (pose: 'W1' | 'W2' | 'W3'): [number, number][] => {
   const [hx, hy] = HAND[pose]
   if (pose === 'W1') return [[hx, hy], [hx - 4, hy - 5], [hx - 12, hy - 8], [hx - 20, hy - 6], [hx - 24, hy]]
   if (pose === 'W2') return [[hx, hy], [hx + 4, hy - 6], [hx + 11, hy - 8], [hx + 15, hy - 5], [hx + 17, hy + 1]]
-  return [[hx, hy], [hx + 8, hy - 2], [CSX + 14, FLOOR - 16]]
+  return [[hx, hy], [hx + 8, hy - 2], [CSX + 14, GH - 16]]
 }
 
 const leftInner = () => {
   const poses: Pose[] = ['A', 'B', 'R', 'W1', 'W2', 'W3']
   const crack = [[2, 0], [2, 1], [2, 3], [2, 4], [0, 2], [1, 2], [3, 2], [4, 2]]
   const shock = new Cv(LW, GH)
-  crack.forEach(([x, y]) => shock.set(CSX + 12 + x!, FLOOR - 19 + y!, '#ffd45e'))
-  const hb = bubbleCv(36, 13, true)
-  const sb = bubbleCv(50, 14, true)
-  return `${slot(CAST[0]!, FLOOR, CSX + 4, CSX)}
+  crack.forEach(([x, y]) => shock.set(CSX + 12 + x!, GH - 19 + y!, '#ffd45e'))
+  return `${slot(CAST[0]!, GH, CSX + 4, CSX)}
 ${poses.map(p => `<g class="p${p}">${heroPose(p)}</g>`).join('')}
 ${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPts(p), '#f1e2b0').svg(0, 0)}</g>`).join('')}
 <g class="wcrack">${shock.svg(0, 0)}</g>
-<g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${FLOOR - 32}h2v6h-2zM${CSX + 16} ${FLOOR - 24}h2v2h-2z"/></g>
-<g class="hsay">${hb.svg(2, HY - 14)}${label('BLA BLA', 6, HY - 10, '#1a1c2c')}</g>
+<g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 32}h2v6h-2zM${CSX + 16} ${GH - 24}h2v2h-2z"/></g>
 <g class="heart">${HEART.svg(HX + CXH - 4, HY - 6)}</g>
-<g class="cbub">${CHECK.svg(CSX + 18, FLOOR - 40)}</g>
-<g class="say-b">${sb.svg(LW - 50, 0)}${[0, 1, 2].map(i => `<g class="bla w${i + 1}">${label('BLA', LW - 47 + i * 16, 4, '#1a1c2c')}</g>`).join('')}</g>`
+<g class="cbub">${CHECK.svg(CSX + 18, GH - 40)}</g>
+`
 }
 
 const rightInner = () =>
   CAST.slice(1)
-    .map((c, i) => `${slot(c, FLOOR, i * 30 + 4, i * 30)}<g class="spk spk-${c.id}">${SPARK.svg(i * 30 + 21, FLOOR - 34)}</g>`)
+    .map((c, i) => `${slot(c, GH, i * 30 + 4, i * 30)}<g class="spk spk-${c.id}">${SPARK.svg(i * 30 + 21, GH - 34)}</g>`)
     .join('\n')
 const LEFT_INNER = leftInner()
 const RIGHT_INNER = rightInner()
@@ -783,7 +862,7 @@ const castCss = () => {
 
 const sceneCss = () => `
 .cl-sl,.cx-sl,.ds-sl,.gp-sl{opacity:1}
-.cl-aw,.cx-aw,.ds-aw,.gp-aw,.dz,.chairb,.desk,.vein,.stm,.rd,.tab,.pR,.pW1,.pW2,.pW3,.wW1,.wW2,.wW3,.wcrack,.bang,.hsay,.heart,.cbub,.pk,.spk,.say-b,.bla{opacity:0}
+.cl-aw,.cx-aw,.ds-aw,.gp-aw,.dz,.chairb,.desk,.vein,.stm,.rd,.tab,.pR,.pW1,.pW2,.pW3,.wW1,.wW2,.wW3,.wcrack,.bang,.hsay,.heart,.cbub,.pk,.spk,.say-b,.wd{opacity:0}
 .ca .cl-sl{opacity:0}.ca .cl-aw{opacity:1}.ca .bed-cl{opacity:0}
 .ph-whip .bed-cl{animation:kCs 2.4s steps(1) forwards}
 .lap,.tshake{transform-box:fill-box;transform-origin:center}
@@ -848,9 +927,8 @@ const sceneCss = () => `
 .ph-done .heart{opacity:1;animation:blink .8s steps(2) infinite}
 .ph-done .cbub{opacity:1}
 .say .say-b{opacity:1}
-.say .w1{animation:wd 2.2s steps(1) 0.1s forwards}
-.say .w2{animation:wd 2.2s steps(1) .6s forwards}
-.say .w3{animation:wd 2.2s steps(1) 1.1s forwards}
+.ph-whip .hsay .wd{animation:wd 2.4s steps(1) forwards}
+.say .say-b .wd{animation:wd 2.2s steps(1) forwards}
 @keyframes wd{0%,99%{opacity:1}100%{opacity:1}}
 ${castCss()}`
 
@@ -864,6 +942,8 @@ const st = {
   send: new Set<string>(),
   recv: new Set<string>(),
   rage: new Set<string>(),
+  hSay: 0,
+  cSay: 0,
 }
 
 // Claude holds a tablet while orders or reports come in, a laptop when working alone.
@@ -894,7 +974,11 @@ const stars = Array.from({ length: 40 }, (_, i) => {
 const cloud = (x: number, y: number, c: string) =>
   `<g fill="${c}"><rect x="${x + 2}" y="${y}" width="8" height="2"/><rect x="${x}" y="${y + 2}" width="14" height="2"/></g>`
 
-const SCENE_STATIC = `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_INNER}</svg></g>
+// the lines people say (changes with each prompt / hand-over)
+const bubbles = () =>
+  `<g class="hsay">${speech(HERO_SAY[st.hSay % HERO_SAY.length]!, true, () => 0, HY + 1)}</g><g class="say-b">${speech(CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
+
+const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_INNER}${bubbles()}</svg></g>
 <g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_INNER}</svg></g>\n<g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
 
 const buildScene = (now: number) => {
@@ -919,7 +1003,7 @@ ${stars}
 <g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>
 <g class="Mn"><rect x="96" y="10" width="8" height="8" fill="#ffcd75"/><rect x="98" y="8" width="4" height="12" fill="#ffcd75"/><rect x="94" y="12" width="12" height="4" fill="#ffcd75"/></g>
 <g class="Gr">${GROUND.back.svg(0, FLOOR - 2)}</g>
-${SCENE_STATIC}
+${sceneStatic()}
 </svg>`
 }
 
@@ -966,8 +1050,11 @@ let poke = (): void => {}
 let later = (_ms: number, _fn: () => void): void => {}
 let sfx = (_n: 'slam' | 'crash' | 'crack'): void => {}
 
+let firstLine = true
 const startWhip = () => {
   const gen = ++st.gen
+  st.hSay = firstLine ? 0 : Math.floor(Math.random() * HERO_SAY.length)
+  firstLine = false
   mainBusy = true
   st.phase = 'whip'
   poke()
@@ -1057,6 +1144,7 @@ const startWork = (w: string) => {
   st.recv.delete(w)
   st.rage.delete(w)
   if (!st.awake.has(w)) {
+    st.cSay = Math.floor(Math.random() * CLAUDE_SAY.length)
     st.awake.add(w)
     st.send.add(w)
     later(2200, () => {
