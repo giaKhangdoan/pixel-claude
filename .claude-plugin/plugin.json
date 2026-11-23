@@ -1,1 +1,13 @@
-{ "name": "pixel-claude", "version": "0.2.3", "description": "Pixel art theme: night-sky 8-bit backdrop, stair-step bubbles, retro palette, chiptune cues." }
+{
+  "name": "pixel-claude",
+  "version": "0.2.7",
+  "description": "Pixel art theme: night-sky 8-bit backdrop, stair-step bubbles, retro palette, chiptune cues.",
+  "userConfig": {
+    "frosted": {
+      "type": "boolean",
+      "title": "Frosted panels",
+      "description": "Let the app frost its chat panels over the pixel scene (the scene shows through every box). Turn it off if the scene disappears.",
+      "default": false
+    }
+  }
+}

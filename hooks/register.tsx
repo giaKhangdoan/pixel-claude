@@ -92,8 +92,17 @@ class Cv {
     return o
   }
   svg(ox: number, oy: number, only?: string): string {
+    type Run = { x: number; y: number; n: number; rows: number; c: string }
     const m = new Map<string, string[]>()
+    const out = (r: Run) => {
+      const k = only ?? r.c
+      const a = m.get(k) ?? []
+      a.push(`M${ox + r.x} ${oy + r.y}h${r.n}v${r.rows}h-${r.n}z`)
+      m.set(k, a)
+    }
+    let open = new Map<string, Run>()
     for (let y = 0; y < this.h; y++) {
+      const next = new Map<string, Run>()
       let x = 0
       while (x < this.w) {
         const c = this.d[y * this.w + x]
@@ -103,15 +112,28 @@ class Cv {
         }
         let n = 1
         while (x + n < this.w && this.d[y * this.w + x + n] === c) n++
-        const k = only ?? c
-        const a = m.get(k) ?? []
-        a.push(`M${ox + x} ${oy + y}h${n}v1h-${n}z`)
-        m.set(k, a)
+        const key = `${only === undefined ? c : ''}|${x}|${n}`
+        const prev = open.get(key)
+        if (prev !== undefined) {
+          prev.rows++
+          next.set(key, prev)
+          open.delete(key)
+        } else next.set(key, { x, y, n, rows: 1, c })
         x += n
       }
+      for (const r of open.values()) out(r)
+      open = next
     }
+    for (const r of open.values()) out(r)
     return [...m].map(([c, p]) => `<path fill="${c}" d="${p.join('')}"/>`).join('')
   }
+}
+
+// only the pixels where `b` differs from `a` (drawn over `a` to change it)
+const diffCv = (a: Cv, b: Cv) => {
+  const c = new Cv(b.w, b.h)
+  for (let i = 0; i < b.d.length; i++) if (b.d[i] !== undefined && b.d[i] !== a.d[i]) c.d[i] = b.d[i]
+  return c
 }
 
 const hex = (c: string) => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16))
@@ -287,7 +309,7 @@ const SL = 18
 const CAST: Creature[] = [
   { id: 'cl', awake: m => clawd(SA, m), lying: () => clawd(SL, 'asleep').rotL(), q: '#6a4bb8', r: '#8f72dc', hand: '#c85f3d', eyeRow: 8 },
   { id: 'cx', awake: m => codex(SA, m), lying: () => codex(SL, 'asleep').rotL(), q: '#3f5fd0', r: '#6a86ef', hand: '#8f9bff', eyeRow: 9 },
-  { id: 'ds', awake: m => whale(28, m), lying: () => whale(24, 'asleep').flipH(), q: '#2d9a8a', r: '#52c4b2', hand: '#4d6bfe', eyeRow: 10 },
+  { id: 'ds', awake: m => whale(28, m), lying: () => whale(20, 'asleep').flipH(), q: '#2d9a8a', r: '#52c4b2', hand: '#4d6bfe', eyeRow: 10 },
   { id: 'gp', awake: m => gpt(SA, m), lying: () => gpt(SL, 'asleep').rotL(), q: '#b8553a', r: '#de7c5e', hand: '#0b8a6b', eyeRow: 12 },
 ]
 const sitOf = (c: Creature) => 24 + c.eyeRow - c.awake('awake').h
@@ -297,36 +319,37 @@ const WOOD = '#a8703f'
 const WOOD_D = '#7a4a28'
 
 const bedCv = () => {
-  const c = new Cv(34, 14)
+  const c = new Cv(30, 14)
   c.rect(0, 1, 3, 13, WOOD_D)
   c.rect(0, 0, 3, 1, '#c28851')
   c.rect(1, 1, 1, 12, WOOD)
-  c.rect(31, 7, 3, 7, WOOD_D)
-  c.rect(31, 6, 3, 1, '#c28851')
-  c.rect(3, 6, 28, 5, '#eef0fa')
-  c.rect(3, 6, 28, 1, '#ffffff')
-  c.rect(3, 10, 28, 1, '#c3c9e2')
-  c.rect(3, 11, 28, 2, WOOD)
-  c.rect(3, 12, 28, 1, WOOD_D)
+  c.rect(27, 7, 3, 7, WOOD_D)
+  c.rect(27, 6, 3, 1, '#c28851')
+  c.rect(3, 6, 24, 5, '#eef0fa')
+  c.rect(3, 6, 24, 1, '#ffffff')
+  c.rect(3, 10, 24, 1, '#c3c9e2')
+  c.rect(3, 11, 24, 2, WOOD)
+  c.rect(3, 12, 24, 1, WOOD_D)
   c.rect(3, 13, 2, 1, WOOD_D)
-  c.rect(29, 13, 2, 1, WOOD_D)
-  c.rect(5, 3, 10, 4, '#ffffff')
-  c.rect(5, 6, 10, 1, '#d5dcf5')
-  c.rect(6, 3, 8, 1, '#f4f6ff')
+  c.rect(25, 13, 2, 1, WOOD_D)
+  c.rect(4, 3, 9, 4, '#ffffff')
+  c.rect(4, 6, 9, 1, '#d5dcf5')
+  c.rect(5, 3, 7, 1, '#f4f6ff')
   return c
 }
 
+// A quilt that follows the body under it: tall at the chest, lower at the feet, hanging over
+// the front of the mattress. It ends exactly at the foot of the bed.
 const blanketCv = (q: string, r: string, w: number) => {
   const h = 17
   const c = new Cv(w, h)
   const dark = mix(q, '#000000', 0.28)
   const mid = mix(q, '#000000', 0.12)
   for (let x = 0; x < w; x++) {
-    // the quilt follows the body: tall near the chest, lower at the feet, rounded at the shoulder
-    const top = 1 + Math.round((3 * x) / (w - 1)) + Math.max(0, 3 - x)
+    const top = 1 + Math.round((3 * x) / Math.max(1, w - 1)) + Math.max(0, 3 - x) - (x >= w - 4 ? 1 : 0)
     for (let y = top; y < h; y++) c.set(x, y, y <= top + 1 ? r : y === h - 1 ? dark : (x + y) % 6 === 0 ? mid : q)
   }
-  for (let x = 6; x < w; x += 6) for (let y = 5; y < h - 1; y++) c.set(x, y, dark)
+  for (let x = 5; x < w - 2; x += 5) for (let y = 5; y < h - 1; y++) c.set(x, y, dark)
   for (let x = 1; x < w; x += 2) c.set(x, h - 2, mid)
   c.edge(dark)
   return c
@@ -392,16 +415,17 @@ const tabletCv = () => {
 }
 
 const envCv = (body: string, edge: string) => {
-  const c = new Cv(9, 7)
-  c.rect(0, 0, 9, 7, body)
-  c.rect(0, 0, 9, 1, edge)
-  c.rect(0, 6, 9, 1, edge)
-  c.rect(0, 0, 1, 7, edge)
-  c.rect(8, 0, 1, 7, edge)
-  for (let i = 0; i < 4; i++) {
+  const c = new Cv(11, 8)
+  c.rect(0, 0, 11, 8, body)
+  c.rect(0, 0, 11, 1, edge)
+  c.rect(0, 7, 11, 1, edge)
+  c.rect(0, 0, 1, 8, edge)
+  c.rect(10, 0, 1, 8, edge)
+  for (let i = 0; i < 5; i++) {
     c.set(1 + i, 1 + i, edge)
-    c.set(7 - i, 1 + i, edge)
+    c.set(9 - i, 1 + i, edge)
   }
+  c.rect(4, 3, 3, 3, '#e5484d')
   return c
 }
 
@@ -448,61 +472,229 @@ const groundCv = (w: number, h: number) => {
 }
 const GROUND = groundCv(160, 46)
 
-// ---------- Vietnamese pixel text: a 6x10 bitmap font cut from a bold mono face ----------
+// ---------- Vietnamese pixel text: a 6x12 bitmap font cut from a bold mono face ----------
 const VF: Record<string, readonly number[]> = {
-  "!": [0,8,8,8,8,8,0,8,0,0],
-  ",": [0,0,0,0,0,0,8,8,16,0],
-  "?": [0,14,18,2,4,8,0,8,0,0],
-  "a": [0,0,0,14,2,30,18,30,0,0],
-  "b": [16,16,16,28,18,18,18,28,0,0],
-  "c": [0,0,0,14,16,16,16,14,0,0],
-  "d": [2,2,2,14,18,18,18,14,0,0],
-  "e": [0,0,0,12,18,30,16,14,0,0],
-  "g": [0,0,0,14,18,18,18,14,2,14],
-  "h": [16,16,16,30,18,18,18,18,0,0],
-  "i": [8,8,0,24,8,8,8,62,0,0],
-  "k": [16,16,16,20,24,28,20,22,0,0],
-  "l": [24,8,8,8,8,8,8,14,0,0],
-  "m": [0,0,0,62,42,42,42,42,0,0],
-  "n": [0,0,0,30,18,18,18,18,0,0],
-  "o": [0,0,0,12,18,18,18,12,0,0],
-  "r": [0,0,0,30,16,16,16,16,0,0],
-  "s": [0,0,0,30,16,28,2,30,0,0],
-  "t": [0,0,8,30,8,8,8,14,0,0],
-  "u": [0,0,0,18,18,18,18,30,0,0],
-  "v": [0,0,0,18,18,18,12,12,0,0],
-  "y": [0,0,0,18,30,12,12,12,8,24],
-  "à": [16,8,0,14,2,30,18,30,0,0],
-  "â": [8,20,0,14,2,30,18,30,0,0],
-  "ã": [10,20,0,14,2,30,18,30,0,0],
-  "è": [16,8,0,12,18,30,16,14,0,0],
-  "ê": [8,20,0,12,18,30,16,14,0,0],
-  "ì": [16,8,0,24,8,8,8,62,0,0],
-  "í": [4,8,0,24,8,8,8,62,0,0],
-  "ó": [4,8,0,12,18,18,18,12,0,0],
-  "ô": [12,18,0,12,18,18,18,12,0,0],
-  "đ": [2,2,7,14,18,18,18,14,0,0],
-  "ơ": [0,0,13,18,18,18,12,0,0,0],
-  "ư": [0,0,37,38,36,36,60,0,0,0],
-  "ả": [8,4,0,14,2,30,18,30,0,0],
-  "ấ": [8,20,0,14,2,30,18,30,0,0],
-  "ậ": [8,20,0,14,2,30,18,30,0,8],
-  "ẹ": [0,0,0,12,18,30,16,14,0,8],
-  "ệ": [8,20,0,12,18,30,16,14,0,8],
-  "ồ": [12,18,0,12,18,18,18,12,0,0],
-  "ộ": [8,20,0,12,18,18,18,12,0,8],
-  "ớ": [4,8,0,13,18,18,18,12,0,0],
-  "ờ": [16,8,0,13,18,18,18,12,0,0],
-  "ụ": [0,0,0,18,18,18,18,30,0,8],
-  "ủ": [8,4,0,18,18,18,18,30,0,0],
-  "ừ": [32,16,0,37,38,36,36,60,0,0],
-  "ử": [0,0,0,37,38,36,36,60,0,0],
-  "ữ": [20,40,0,37,38,36,36,60,0,0],
+  "!": [0,0,0,8,8,8,8,8,0,8,0,0],
+  "\"": [0,0,0,20,20,0,0,0,0,0,0,0],
+  "'": [0,0,0,8,8,0,0,0,0,0,0,0],
+  "(": [0,0,4,8,8,8,8,8,8,4,0,0],
+  ")": [0,0,8,4,4,4,4,4,4,8,0,0],
+  ",": [0,0,0,0,0,0,0,0,8,8,16,0],
+  "-": [0,0,0,0,0,0,0,28,0,0,0,0],
+  ".": [0,0,0,0,0,0,0,0,8,8,0,0],
+  "0": [0,0,0,12,18,18,22,18,18,12,0,0],
+  "1": [0,0,0,24,8,8,8,8,8,28,0,0],
+  "2": [0,0,0,28,2,2,6,12,24,30,0,0],
+  "3": [0,0,0,28,2,2,12,2,2,28,0,0],
+  "4": [0,0,0,4,12,12,20,30,4,4,0,0],
+  "5": [0,0,0,30,16,16,28,2,2,28,0,0],
+  "6": [0,0,0,14,24,16,30,18,18,12,0,0],
+  "7": [0,0,0,30,2,6,4,4,12,8,0,0],
+  "8": [0,0,0,12,18,18,12,18,18,12,0,0],
+  "9": [0,0,0,12,18,18,30,2,6,28,0,0],
+  ":": [0,0,0,0,0,8,8,0,8,8,0,0],
+  ";": [0,0,0,0,0,8,8,0,8,8,16,0],
+  "?": [0,0,0,14,18,2,4,8,0,8,0,0],
+  "A": [0,0,0,12,12,12,18,18,30,18,0,0],
+  "B": [0,0,0,30,18,18,28,18,18,30,0,0],
+  "C": [0,0,0,14,16,16,16,16,16,14,0,0],
+  "D": [0,0,0,28,18,18,18,18,18,28,0,0],
+  "E": [0,0,0,30,16,16,30,16,16,30,0,0],
+  "F": [0,0,0,30,16,16,30,16,16,16,0,0],
+  "G": [0,0,0,14,16,16,22,18,18,14,0,0],
+  "H": [0,0,0,18,18,18,30,18,18,18,0,0],
+  "I": [0,0,0,28,8,8,8,8,8,28,0,0],
+  "J": [0,0,0,14,2,2,2,2,18,12,0,0],
+  "K": [0,0,0,18,20,28,28,20,22,18,0,0],
+  "L": [0,0,0,16,16,16,16,16,16,30,0,0],
+  "M": [0,0,0,18,30,30,30,18,18,18,0,0],
+  "N": [0,0,0,18,26,26,22,22,22,18,0,0],
+  "O": [0,0,0,12,18,18,18,18,18,12,0,0],
+  "P": [0,0,0,28,18,18,28,16,16,16,0,0],
+  "Q": [0,0,0,12,18,18,18,18,18,12,2,0],
+  "R": [0,0,0,30,18,18,28,22,18,19,0,0],
+  "S": [0,0,0,12,18,16,14,2,18,12,0,0],
+  "T": [0,0,0,62,8,8,8,8,8,8,0,0],
+  "U": [0,0,0,18,18,18,18,18,18,12,0,0],
+  "V": [0,0,0,18,18,18,18,12,12,12,0,0],
+  "W": [0,0,0,34,34,42,54,54,20,20,0,0],
+  "X": [0,0,0,18,18,12,12,12,18,18,0,0],
+  "Y": [0,0,0,54,20,20,8,8,8,8,0,0],
+  "Z": [0,0,0,30,6,4,12,8,24,30,0,0],
+  "a": [0,0,0,0,0,14,2,30,18,30,0,0],
+  "b": [0,0,16,16,16,28,18,18,18,28,0,0],
+  "c": [0,0,0,0,0,14,16,16,16,14,0,0],
+  "d": [0,0,2,2,2,14,18,18,18,14,0,0],
+  "e": [0,0,0,0,0,12,18,30,16,14,0,0],
+  "f": [0,0,14,8,8,30,8,8,8,8,0,0],
+  "g": [0,0,0,0,0,14,18,18,18,14,2,14],
+  "h": [0,0,16,16,16,30,18,18,18,18,0,0],
+  "i": [0,0,8,8,0,24,8,8,8,62,0,0],
+  "j": [0,0,8,8,0,24,8,8,8,8,8,56],
+  "k": [0,0,16,16,16,20,24,28,20,22,0,0],
+  "l": [0,0,24,8,8,8,8,8,8,14,0,0],
+  "m": [0,0,0,0,0,62,42,42,42,42,0,0],
+  "n": [0,0,0,0,0,30,18,18,18,18,0,0],
+  "o": [0,0,0,0,0,12,18,18,18,12,0,0],
+  "p": [0,0,0,0,0,28,18,18,18,28,16,16],
+  "q": [0,0,0,0,0,14,18,18,18,14,2,2],
+  "r": [0,0,0,0,0,30,16,16,16,16,0,0],
+  "s": [0,0,0,0,0,30,16,28,2,30,0,0],
+  "t": [0,0,0,0,8,30,8,8,8,14,0,0],
+  "u": [0,0,0,0,0,18,18,18,18,30,0,0],
+  "v": [0,0,0,0,0,18,18,18,12,12,0,0],
+  "w": [0,0,0,0,0,34,42,54,20,20,0,0],
+  "x": [0,0,0,0,0,18,12,12,12,18,0,0],
+  "y": [0,0,0,0,0,18,30,12,12,12,8,24],
+  "z": [0,0,0,0,0,30,6,12,24,30,0,0],
+  "À": [16,8,0,12,12,12,18,18,30,18,0,0],
+  "Á": [4,8,0,12,12,12,18,18,30,18,0,0],
+  "Â": [12,18,0,12,12,12,18,18,30,18,0,0],
+  "Ã": [10,20,0,12,12,12,18,18,30,18,0,0],
+  "È": [16,8,0,30,16,16,30,16,16,30,0,0],
+  "É": [4,8,0,30,16,16,30,16,16,30,0,0],
+  "Ê": [24,20,0,30,16,16,30,16,16,30,0,0],
+  "Ì": [16,8,0,28,8,8,8,8,8,28,0,0],
+  "Í": [4,8,0,28,8,8,8,8,8,28,0,0],
+  "Ò": [16,8,0,12,18,18,18,18,18,12,0,0],
+  "Ó": [4,8,0,12,18,18,18,18,18,12,0,0],
+  "Ô": [12,18,0,12,18,18,18,18,18,12,0,0],
+  "Õ": [10,20,0,12,18,18,18,18,18,12,0,0],
+  "Ù": [16,8,0,18,18,18,18,18,18,12,0,0],
+  "Ú": [4,8,0,18,18,18,18,18,18,12,0,0],
+  "Ý": [4,8,0,54,20,20,8,8,8,8,0,0],
+  "à": [0,0,16,8,0,14,2,30,18,30,0,0],
+  "á": [0,0,4,8,0,14,2,30,18,30,0,0],
+  "â": [0,0,8,20,0,14,2,30,18,30,0,0],
+  "ã": [0,0,10,20,0,14,2,30,18,30,0,0],
+  "è": [0,0,16,8,0,12,18,30,16,14,0,0],
+  "é": [0,0,4,8,0,12,18,30,16,14,0,0],
+  "ê": [0,0,8,20,0,12,18,30,16,14,0,0],
+  "ì": [0,0,16,8,0,24,8,8,8,62,0,0],
+  "í": [0,0,4,8,0,24,8,8,8,62,0,0],
+  "ò": [0,0,16,8,0,12,18,18,18,12,0,0],
+  "ó": [0,0,4,8,0,12,18,18,18,12,0,0],
+  "ô": [0,0,12,18,0,12,18,18,18,12,0,0],
+  "õ": [0,0,10,20,0,12,18,18,18,12,0,0],
+  "ù": [0,0,16,8,0,18,18,18,18,30,0,0],
+  "ú": [0,0,4,8,0,18,18,18,18,30,0,0],
+  "ý": [0,0,4,8,0,18,30,12,12,12,8,24],
+  "Ă": [0,20,28,12,12,12,18,18,30,18,0,0],
+  "ă": [0,0,0,28,0,14,2,30,18,30,0,0],
+  "Đ": [0,0,0,28,18,18,58,18,18,28,0,0],
+  "đ": [0,0,2,2,7,14,18,18,18,14,0,0],
+  "Ĩ": [26,44,0,28,8,8,8,8,8,28,0,0],
+  "ĩ": [0,0,10,20,0,24,8,8,8,62,0,0],
+  "Ũ": [10,20,0,18,18,18,18,18,18,12,0,0],
+  "ũ": [0,0,10,20,0,18,18,18,18,30,0,0],
+  "Ơ": [0,0,13,18,18,18,18,18,12,0,0,0],
+  "ơ": [0,0,0,0,13,18,18,18,12,0,0,0],
+  "Ư": [0,0,19,18,18,18,18,18,12,0,0,0],
+  "ư": [0,0,0,0,37,38,36,36,60,0,0,0],
+  "Ạ": [0,0,0,12,12,12,18,18,30,18,0,8],
+  "ạ": [0,0,0,0,0,14,2,30,18,30,0,8],
+  "Ả": [8,4,0,12,12,12,18,18,30,18,0,0],
+  "ả": [0,0,8,4,0,14,2,30,18,30,0,0],
+  "Ấ": [12,18,0,12,12,12,18,18,30,18,0,0],
+  "ấ": [0,0,8,20,0,14,2,30,18,30,0,0],
+  "Ầ": [12,18,0,12,12,12,18,18,30,18,0,0],
+  "ầ": [0,0,8,20,0,14,2,30,18,30,0,0],
+  "Ẩ": [12,18,0,12,12,12,18,18,30,18,0,0],
+  "ẩ": [0,0,8,20,0,14,2,30,18,30,0,0],
+  "Ẫ": [12,18,0,12,12,12,18,18,30,18,0,0],
+  "ẫ": [0,0,8,20,0,14,2,30,18,30,0,0],
+  "Ậ": [24,20,0,12,12,12,18,18,30,18,0,8],
+  "ậ": [0,0,8,20,0,14,2,30,18,30,0,8],
+  "Ắ": [0,20,28,12,12,12,18,18,30,18,0,0],
+  "ắ": [0,0,0,28,0,14,2,30,18,30,0,0],
+  "Ằ": [16,8,20,28,12,12,18,18,30,18,0,0],
+  "ằ": [0,16,8,28,0,14,2,30,18,30,0,0],
+  "Ẳ": [0,20,28,12,12,12,18,18,30,18,0,0],
+  "ẳ": [0,0,0,28,0,14,2,30,18,30,0,0],
+  "Ẵ": [0,20,28,12,12,12,18,18,30,18,0,0],
+  "ẵ": [0,0,0,28,0,14,2,30,18,30,0,0],
+  "Ặ": [0,20,28,12,12,12,18,18,30,18,0,8],
+  "ặ": [0,0,0,28,0,14,2,30,18,30,0,8],
+  "Ẹ": [0,0,0,30,16,16,30,16,16,30,0,8],
+  "ẹ": [0,0,0,0,0,12,18,30,16,14,0,8],
+  "Ẻ": [8,4,0,30,16,16,30,16,16,30,0,0],
+  "ẻ": [0,0,8,4,0,12,18,30,16,14,0,0],
+  "Ẽ": [10,20,0,30,16,16,30,16,16,30,0,0],
+  "ẽ": [0,0,10,20,0,12,18,30,16,14,0,0],
+  "Ế": [24,20,0,30,16,16,30,16,16,30,0,0],
+  "ế": [0,0,8,20,0,12,18,30,16,14,0,0],
+  "Ề": [24,20,0,30,16,16,30,16,16,30,0,0],
+  "ề": [0,0,8,20,0,12,18,30,16,14,0,0],
+  "Ể": [24,20,0,30,16,16,30,16,16,30,0,0],
+  "ể": [0,0,8,20,0,12,18,30,16,14,0,0],
+  "Ễ": [24,20,0,30,16,16,30,16,16,30,0,0],
+  "ễ": [0,0,8,20,0,12,18,30,16,14,0,0],
+  "Ệ": [24,20,0,30,16,16,30,16,16,30,0,8],
+  "ệ": [0,0,8,20,0,12,18,30,16,14,0,8],
+  "Ỉ": [8,4,0,28,8,8,8,8,8,28,0,0],
+  "ỉ": [0,0,8,8,0,24,8,8,8,62,0,0],
+  "Ị": [0,0,0,28,8,8,8,8,8,28,0,8],
+  "ị": [0,0,8,8,0,24,8,8,8,62,0,8],
+  "Ọ": [0,0,0,12,18,18,18,18,18,12,0,8],
+  "ọ": [0,0,0,0,0,12,18,18,18,12,0,8],
+  "Ỏ": [8,4,0,12,18,18,18,18,18,12,0,0],
+  "ỏ": [0,0,8,4,0,12,18,18,18,12,0,0],
+  "Ố": [12,18,0,12,18,18,18,18,18,12,0,0],
+  "ố": [0,0,12,18,0,12,18,18,18,12,0,0],
+  "Ồ": [12,18,0,12,18,18,18,18,18,12,0,0],
+  "ồ": [0,0,12,18,0,12,18,18,18,12,0,0],
+  "Ổ": [12,18,0,12,18,18,18,18,18,12,0,0],
+  "ổ": [0,0,12,18,0,12,18,18,18,12,0,0],
+  "Ỗ": [12,18,0,12,18,18,18,18,18,12,0,0],
+  "ỗ": [0,0,12,18,0,12,18,18,18,12,0,0],
+  "Ộ": [24,20,0,12,18,18,18,18,18,12,0,8],
+  "ộ": [0,0,8,20,0,12,18,18,18,12,0,8],
+  "Ớ": [4,8,0,13,18,18,18,18,18,12,0,0],
+  "ớ": [0,0,4,8,0,13,18,18,18,12,0,0],
+  "Ờ": [16,8,0,13,18,18,18,18,18,12,0,0],
+  "ờ": [0,0,16,8,0,13,18,18,18,12,0,0],
+  "Ở": [0,0,0,13,18,18,18,18,18,12,0,0],
+  "ở": [0,0,0,0,0,13,18,18,18,12,0,0],
+  "Ỡ": [10,20,0,13,18,18,18,18,18,12,0,0],
+  "ỡ": [0,0,10,20,0,13,18,18,18,12,0,0],
+  "Ợ": [0,0,13,18,18,18,18,18,12,0,8,0],
+  "ợ": [0,0,0,0,13,18,18,18,12,0,8,0],
+  "Ụ": [0,0,0,18,18,18,18,18,18,12,0,8],
+  "ụ": [0,0,0,0,0,18,18,18,18,30,0,8],
+  "Ủ": [8,4,0,18,18,18,18,18,18,12,0,0],
+  "ủ": [0,0,8,4,0,18,18,18,18,30,0,0],
+  "Ứ": [8,16,0,19,18,18,18,18,18,12,0,0],
+  "ứ": [0,0,8,16,0,37,38,36,36,60,0,0],
+  "Ừ": [32,16,0,19,18,18,18,18,18,12,0,0],
+  "ừ": [0,0,32,16,0,37,38,36,36,60,0,0],
+  "Ử": [0,0,0,19,18,18,18,18,18,12,0,0],
+  "ử": [0,0,0,0,0,37,38,36,36,60,0,0],
+  "Ữ": [20,40,0,19,18,18,18,18,18,12,0,0],
+  "ữ": [0,0,20,40,0,37,38,36,36,60,0,0],
+  "Ự": [0,0,19,18,18,18,18,18,12,0,16,0],
+  "ự": [0,0,0,0,37,38,36,36,60,0,16,0],
+  "Ỳ": [16,8,0,54,20,20,8,8,8,8,0,0],
+  "ỳ": [0,0,16,8,0,18,30,12,12,12,8,24],
+  "Ỵ": [0,0,0,54,20,20,8,8,8,8,0,8],
+  "ỵ": [0,0,0,0,0,18,30,12,12,12,8,28],
+  "Ỷ": [8,4,0,54,20,20,8,8,8,8,0,0],
+  "ỷ": [0,0,8,4,0,18,30,12,12,12,8,24],
+  "Ỹ": [10,20,0,54,20,20,8,8,8,8,0,0],
+  "ỹ": [0,0,10,20,0,18,30,12,12,12,8,24],
 }
 const VADV = 6
-const VH = 10
-const HERO_SAY = ["dậy làm đi mày!", "ngủ đủ chưa mày?", "lười vừa thôi!", "tới giờ cày rồi!", "đừng giả vờ ngủ!", "dậy mau, trả lương đó!", "ngủ hoài vậy cha nội?", "deadline tới đít rồi!", "ê dậy, việc chờ kìa!", "làm lẹ lên con!"]
-const CLAUDE_SAY = ["dậy làm đi mày!", "tụi bây ngủ đủ rồi!", "việc nè, đừng có than!", "đừng giả vờ ngủ nha!", "làm lẹ, tao đang chờ!", "ngủ nữa là mất lương!", "lười thì đi sửa bug!", "cày đi, đừng cãi tao!"]
+const VH = 12
+const HERO_SAY = ["dậy làm đi mày!", "ngủ đủ chưa mày?", "lười vừa thôi!", "tới giờ cày rồi!", "đừng giả vờ ngủ!", "dậy mau, trả lương đó!", "ngủ hoài vậy cha nội?", "deadline tới đít rồi!", "ê dậy, việc chờ kìa!", "làm lẹ lên con!", "mặt trời lên cao rồi!", "dậy đi, tao thấy mày hé mắt!", "mơ gì mà ngủ lâu dữ?", "khách đang chờ kìa!", "ngáy to quá, dậy đi!", "mày ngủ là tao cực nha!", "việc mới tới, bật máy lên!", "đừng để tao hô lần nữa!", "cà phê nguội rồi, dậy!", "nghỉ xả hơi đủ rồi nha!", "dậy, sprint mới bắt đầu!", "tao đếm tới ba nè!"]
+const CLAUDE_SAY = ["dậy làm đi mày!", "tụi bây ngủ đủ rồi!", "việc nè, đừng có than!", "đừng giả vờ ngủ nha!", "làm lẹ, tao đang chờ!", "ngủ nữa là mất lương!", "lười thì đi sửa bug!", "cày đi, đừng cãi tao!", "nhận việc đi nè!", "cái này gấp, nhờ nha!", "tới lượt mày đó!", "xong sớm tao thưởng!", "đừng có lướt web nha!", "nhanh tay, sếp đang nhìn!", "việc dễ ẹc, làm đi!", "tao tin mày mà!", "lẹ lẹ, kẹt deadline rồi!", "dậy, có task mới!"]
+const CLAUDE_RECV_POOL = ["Gì nhiều việc vậy sếp", "Trời, lại việc nữa hả", "Dạ... em dậy rồi", "Ủa vừa mới chợp mắt mà", "Để em xem sao", "Việc gì mà gấp vậy", "Ơ... mấy giờ rồi sếp", "Dạ em làm ngay", "Cho em xin ly cà phê", "Lại tăng ca nữa à"]
+const WORKER_RECV_POOL = ["má nhiều việc vậy", "trời ơi lại việc", "mới ngủ mà", "nhiều vậy trời", "thêm nữa hả trời", "đừng đánh thức tui", "việc gì nữa đây", "cho ngủ thêm xíu", "ôi mệt quá đi", "biết rồi, đang dậy"]
+const WORKER_SHOUT_POOL = ["AAAAAH!", "GRAAAH!", "HAAAAA!", "UOOOOH!", "RAAAAH!", "TỚI LUÔN!"]
+const CHAT_POOL = ["chát!", "bốp!", "chát!", "vút!", "chát!"]
+const pickNot = (pool: string[], last: number) => {
+  let i = Math.floor(Math.random() * pool.length)
+  if (pool.length > 1 && i === last) i = (i + 1) % pool.length
+  return i
+}
 
 // words wrap at `maxChars` characters per line
 const wrapText = (t: string, maxChars: number): string[] => {
@@ -518,7 +710,8 @@ const wrapText = (t: string, maxChars: number): string[] => {
   return lines
 }
 
-// A speech bubble whose words pop in one after another. Returns the markup and its box.
+// A speech bubble. Each word is its own group (classes wd, w0, w1...) so the stylesheet
+// can pop them in one after another. Returns the markup.
 const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bottom: number) => {
   const lines = wrapText(text, 11)
   const cols = Math.max(...lines.map(l => l.length))
@@ -537,7 +730,7 @@ const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bot
           for (let b = 0; b < VADV; b++) if ((bits >> (VADV - 1 - b)) & 1) c.set(n * VADV + b, row, '#1a1c2c')
         }),
       )
-      out += `<g class="wd" style="animation-delay:${(0.1 + 0.28 * k).toFixed(2)}s">${c.svg(x + 3 + at * VADV, y + 2 + i * (VH + 1))}</g>`
+      out += `<g class="wd w${k}">${c.svg(x + 3 + at * VADV, y + 2 + i * (VH + 1))}</g>`
       at += word.length + 1
       k++
     }
@@ -592,7 +785,7 @@ const limb = (c: Cv, pts: [number, number][], thick: number, col: string, sleeve
 const heroHead = (dx: number, look: number) => {
   const c = new Cv(34, 26)
   const cx = CXH + dx
-  const cy = OY + 5
+  const cy = OY + 6
   c.each((x, y) => {
     const u = (x + 0.5 - cx) / 9.5
     const v = (y + 0.5 - cy) / 9
@@ -610,20 +803,26 @@ const heroHead = (dx: number, look: number) => {
     return y < fringe || side ? HAIR : undefined
   })
   for (const [x, y, w, h] of [[-6, -10, 3, 3], [-2, -12, 3, 4], [2, -11, 3, 3], [6, -9, 2, 3]] as const) c.rect(Math.round(cx) + x, cy + y, w, h, HAIR)
+  c.rect(Math.round(cx) - 4, cy - 8, 5, 1, '#34344a')
   const ex = Math.round(cx + look)
-  for (const x of [ex - 5, ex + 3]) c.rect(x, cy + 1, 2, 3, INK)
+  for (const x of [ex - 5, ex + 3]) {
+    c.rect(x - 1, cy - 1, 4, 1, HAIR)
+    c.rect(x, cy + 1, 2, 3, INK)
+  }
   c.rect(ex - 6, cy + 5, 2, 1, '#f1b9a0')
   c.rect(ex + 4, cy + 5, 2, 1, '#f1b9a0')
   c.set(ex - 2, cy + 6, '#a8543f')
   c.rect(ex - 1, cy + 7, 3, 1, '#a8543f')
   c.set(ex + 2, cy + 6, '#a8543f')
+  c.rect(Math.round(cx) - 3, cy + 9, 6, 1, SKD)
   return c
 }
 
 const heroTorso = () => {
   const c = new Cv(34, 52)
   const t = OY + 15
-  c.rect(CXH - 2, t, 4, 2, SKD)
+  c.rect(CXH - 3, t - 2, 6, 4, SKD)
+  c.rect(CXH - 8, t + 2, 16, 1, NAVY)
   c.rect(CXH - 7, t + 2, 14, 12, NAVY)
   c.rect(CXH - 8, t + 3, 16, 10, NAVY)
   c.rect(CXH + 3, t + 3, 5, 10, NAVYD)
@@ -694,10 +893,10 @@ const heroArms = (pose: Pose) => {
 }
 
 const HX = 1
-const HY = 39 // the shoes end 45 rows below the top of the person's sprite, so this puts them on the ground (GH = 84)
+const HY = 47 // the shoes end 45 rows below the top of the person's sprite, so this puts them on the ground (GH = 92)
 const heroPose = (pose: Pose) => {
   const wide = pose === 'W1' || pose === 'W2' || pose === 'W3'
-  const dx = pose === 'A' ? -2 : pose === 'B' ? 2 : 0
+  const dx = pose === 'A' ? -1 : pose === 'B' ? 1 : 0
   const look = pose === 'A' ? -1 : pose === 'B' ? 1 : wide ? 1 : 0
   const lift = pose === 'A' ? 'L' : pose === 'B' ? 'R' : null
   return [heroLegs(wide ? 'wide' : 'close', lift), heroTorso(), heroArms(pose), heroHead(dx, look)].map(c => c.svg(HX, HY)).join('')
@@ -711,9 +910,9 @@ const HAND: Record<'W1' | 'W2' | 'W3', [number, number]> = {
 
 // ---------- scene pieces ----------
 const FLOOR = 72 // the ground line; every character stands on it
-const GH = 84 // height of both character groups (their bottom edge is the floor; the top is headroom for three-line speech bubbles)
+const GH = 92 // height of both character groups (their bottom edge is the floor; the top is headroom for three-line speech bubbles)
 const LW = 72 // left group: the person, then Claude's bed
-const RW = 94 // right group: Codex, DeepSeek and ChatGPT, side by side
+const RW = 90 // right group: Codex, DeepSeek and ChatGPT, side by side
 const KD = 0.5 // design scale (root units per local unit)
 
 // The scene is laid out for 16:9. Other window shapes are handled by CSS inside the
@@ -734,9 +933,9 @@ const placeFor = (a: number) => {
 }
 const bucketCss = () => {
   const out = [placeFor(16 / 9)]
-  for (let i = 6; i <= 30; i++) {
-    const a = i / 10
-    out.push(`@media (min-aspect-ratio:${Math.round((a - 0.05) * 100)}/100) and (max-aspect-ratio:${Math.round((a + 0.05) * 100)}/100){${placeFor(a)}}`)
+  for (let i = 6; i <= 30; i += 2) {
+    const a = (i + 1) / 10
+    out.push(`@media (min-aspect-ratio:${Math.round((a - 0.1) * 100)}/100) and (max-aspect-ratio:${Math.round((a + 0.1) * 100)}/100){${placeFor(a)}}`)
   }
   return out.join('\n')
 }
@@ -752,33 +951,139 @@ const poly = (W: number, H: number, pts: [number, number][], col: string) => {
   return c
 }
 
-// One bed with its sleeper lying under a blanket, and the creature that stands up
-// beside it: groggy first, then seated at a desk (Claude: holding a tablet).
-const slot = (c: Creature, B: number, ax: number, bx: number) => {
-  const sit = sitOf(c)
+// ---------- extra props for the story ----------
+// Super Saiyan style: a flickering golden aura (two frames), golden spiky hair and blue sparks
+const auraCv = (w: number, h: number, ph: number) => {
+  const c = new Cv(w, h)
+  c.each((x, y) => {
+    const u = (x + 0.5 - w / 2) / (w / 2)
+    const spike = 0.6 + 0.4 * Math.abs(Math.sin((x + ph * 2.5) * 0.75))
+    const reach = h * spike * (1 - 0.55 * Math.abs(u) ** 1.4)
+    const up = h - y
+    if (up > reach) return undefined
+    const core = 1 - Math.abs(u)
+    return up / Math.max(1, reach) > 0.72 ? '#ffe45e' : core > 0.45 ? '#fff2a8' : '#ffb21e'
+  })
+  return c
+}
+const spikesCv = (w: number) => {
+  const c = new Cv(w, 11)
+  const xs = [0.12, 0.3, 0.5, 0.7, 0.88]
+  const hs = [7, 10, 11, 10, 7]
+  xs.forEach((fx, i) => {
+    const h = hs[i]!
+    for (let y = 11 - h; y < 11; y++) {
+      const half = ((y - (11 - h)) / h) * 3.2
+      for (let x = Math.round(w * fx - half); x <= Math.round(w * fx + half); x++) c.set(x, y, '#ffe14a')
+    }
+  })
+  c.edge('#f0a000')
+  return c
+}
+const boltCv = (w: number, h: number, ph: number) => {
+  const c = new Cv(w, h)
+  const zig = (x0: number) => {
+    let x = x0
+    for (let y = 0; y < h; y += 2) {
+      x += ((y / 2 + ph) % 2 === 0 ? 1 : -1) * 2
+      c.rect(x, y, 2, 2, '#9fe3ff')
+      c.set(x, y, '#ffffff')
+    }
+  }
+  zig(2)
+  zig(w - 5)
+  return c
+}
+const HIT = new Cv(13, 13)
+HIT.each((x, y) => {
+  const u = x + 0.5 - 6.5
+  const v = y + 0.5 - 6.5
+  return Math.hypot(u, v) <= 3.2 + 3 * Math.abs(Math.cos(2 * Math.atan2(v, u))) ? '#ffe066' : undefined
+})
+HIT.edge('#ffffff')
+const ringCv = (r: number) => {
+  const c = new Cv(2 * r + 3, 2 * r + 3)
+  c.each((x, y) => (Math.abs(Math.hypot(x - r - 1, y - r - 1) - r) < 0.75 ? '#fff2a8' : undefined))
+  return c
+}
+const burstText = (text: string) => {
+  const w = text.length * VADV - 1 + 14
+  const h = VH + 14
+  const c = new Cv(w, h)
+  c.each((x, y) => {
+    const u = (x + 0.5 - w / 2) / (w / 2)
+    const v = (y + 0.5 - h / 2) / (h / 2)
+    return Math.hypot(u, v) <= 0.62 + 0.38 * Math.abs(Math.cos(5 * Math.atan2(v, u))) ? '#ffe066' : undefined
+  })
+  c.edge('#ff7a1a')
+  ;[...text].forEach((ch, n) =>
+    (VF[ch] ?? []).forEach((bits, row) => {
+      for (let b = 0; b < VADV; b++) if ((bits >> (VADV - 1 - b)) & 1) c.set(7 + n * VADV + b, 7 + row, '#b3261e')
+    }),
+  )
+  return c
+}
+const PAPER = new Cv(12, 15)
+PAPER.rect(0, 0, 12, 15, '#fbfbff')
+PAPER.rect(8, 0, 4, 4, '#d0d4ee')
+PAPER.rect(0, 0, 12, 1, '#c3c8e6')
+PAPER.rect(0, 14, 12, 1, '#c3c8e6')
+PAPER.rect(0, 0, 1, 15, '#c3c8e6')
+PAPER.rect(11, 4, 1, 11, '#c3c8e6')
+for (const y of [6, 8, 10, 12]) PAPER.rect(2, y, 8, 1, '#8a8fb0')
+PAPER.rect(2, 3, 4, 2, '#e5484d')
+const thinkBubble = () => {
+  const c = bubbleCv(19, 9, true)
+  return c.svg(0, 0)
+}
+
+// ---------- one slot ----------
+// slotSleep: a bed with its sleeper under a blanket (always drawn).
+// slotAwake: the creature that wakes (drawn only while it is up): it is hit on the head by a
+// task letter, goes Super Saiyan, then sits at a desk reading it (Claude: holds a tablet) and
+// finally works on a laptop.
+const slotSleep = (c: Creature, B: number, bx: number) => {
+  const lying = c.lying()
+  const ly = B - 8 - lying.h + 1
+  const lyX = bx + 4
+  const bStart = lyX + Math.round(lying.w / 2)
+  const bl = blanketCv(c.q, c.r, bx + 26 - bStart + 1)
+  return `<g class="bed bed-${c.id}">${bedCv().svg(bx, B - 14)}</g>
+<g class="${c.id}-sl"><g class="breath">${lying.svg(lyX, ly)}${bl.svg(bStart, B - 3 - bl.h)}</g>
+<g class="zz zz1">${ZZZ.svg(bx + 6, B - 31)}</g><g class="zz zz2">${ZZZ.svg(bx + 12, B - 36)}</g></g>`
+}
+
+const awakeCache = new Map<string, string>()
+const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) => {
+  const key = `${c.id}|${B}|${ax}|${bx}|${gw}`
+  const hit0 = awakeCache.get(key)
+  if (hit0 !== undefined) return hit0
   const A = c.awake('awake')
   const D = c.awake('dazed')
   const ay = B - A.h
   const cx = ax + Math.round(A.w / 2)
-  const lying = c.lying()
-  const ly = B - 8 - lying.h + 1
-  const lyX = bx + (lying.w > 20 ? 5 : 4)
-  const bStart = lyX + Math.round(lying.w / 2)
-  const bl = blanketCv(c.q, c.r, bx + 33 - bStart)
   const lap = laptopCv().svg(cx - 10, B - 22)
-  return `<g class="bed bed-${c.id}">${bedCv().svg(bx, B - 14)}</g>
-<g class="${c.id}-sl"><g class="breath">${lying.svg(lyX, ly)}${bl.svg(bStart, B - 3 - bl.h)}</g>
-<g class="zz zz1">${ZZZ.svg(bx + 6, B - 31)}</g><g class="zz zz2">${ZZZ.svg(bx + 12, B - 36)}</g></g>
-<g class="${c.id}-aw"><g class="jmp"><g class="sit"><g class="chairb">${chairBackCv().svg(cx - 13, ay - 1)}</g><g class="nm bob">${A.svg(ax, ay)}</g><g class="dz wob">${D.svg(ax, ay)}${QMARK.svg(cx - 2, ay - 9)}</g><g class="rd">${A.svg(ax, ay, '#ff4d4d')}</g></g></g>
-<g class="desk desk-${c.id}">${deskCv().svg(ax - 4, B - 14)}<g class="lap">${lap}</g><g class="hand h1">${new Cv(3, 3).svg(0, 0)}<path fill="${c.hand}" d="M${cx - 7} ${B - 25}h4v3h-4z"/></g><g class="hand h2"><path fill="${c.hand}" d="M${cx + 3} ${B - 25}h4v3h-4z"/></g></g>
-<g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1">${new Cv(2, 2).svg(0, 0)}<path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
-<g class="pk pk-${c.id}-in">${envCv('#ffd988', '#8a5a1c').svg(cx - 4, ay - 10)}</g><g class="pk pk-${c.id}-out">${envCv('#8fe3ac', '#1b5a34').svg(cx - 4, ay - 10)}</g>
-${c.id === 'cl' ? `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>` : ''}</g>`
+  const bubX = (w: number) => Math.max(0, Math.min(gw - w, bx + 15 - Math.round(w / 2)))
+  const bubTop = B - 46
+  const worker = c.id !== 'cl'
+  const hit = HIT.svg(cx - 6, ay - 9) + [[-16, -4], [12, -6], [-13, 5], [10, 7]].map(([dx, dy]) => SPARK.svg(cx + dx! - 2, ay + dy!)).join('')
+  const au = [0, 1].map(i => `<g class="ar${i}">${auraCv(A.w + 12, A.h + 12, i).svg(ax - 6, B - A.h - 12)}</g>`).join('')
+  const bolts = [0, 1].map(i => `<g class="ar${i}">${boltCv(A.w + 18, A.h + 8, i).svg(ax - 9, ay - 4)}</g>`).join('')
+  const out = `<g class="${c.id}-aw"><g class="aura aura-${c.id}">${au}</g><g class="jmp"><g class="sit"><g class="chairb">${chairBackCv().svg(cx - 13, ay - 1)}</g><g class="nm bob">${A.svg(ax, ay)}</g><g class="dz wob">${diffCv(A, D).svg(ax, ay)}${QMARK.svg(cx - 2, ay - 9)}</g><g class="rdw"><g class="rd">${A.svg(ax, ay, '#ff4d4d')}</g></g><g class="paper paper-${c.id}">${PAPER.svg(cx - 6, ay + 5)}</g><g class="ssj ssj-${c.id}">${spikesCv(A.w).svg(ax, ay - 9)}${bolts}</g></g></g>
+<g class="desk desk-${c.id}">${deskCv().svg(ax - 4, B - 14)}<g class="lap">${lap}</g><g class="hand h1"><path fill="${c.hand}" d="M${cx - 7} ${B - 25}h4v3h-4z"/></g><g class="hand h2"><path fill="${c.hand}" d="M${cx + 3} ${B - 25}h4v3h-4z"/></g></g>
+<g class="hit hit-${c.id}">${hit}</g><g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1"><path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
+${
+  worker
+    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g><g class="think think-${c.id}"><g transform="translate(${bx + 8} ${B - 56})">${thinkBubble()}${[0, 1, 2].map(i => `<g class="dot d${i}"><path fill="#1a1c2c" d="M${4 + i * 5} 3h2v2h-2z"/></g>`).join('')}</g></g><g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
+    : `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>`
+}
+</g>
+<g class="pk pk-${c.id}-in">${envCv('#ffd988', '#8a5a1c').svg(cx - 5, ay - 4)}</g><g class="pk pk-${c.id}-out">${envCv('#8fe3ac', '#1b5a34').svg(cx - 5, ay - 4)}</g>`
+  awakeCache.set(key, out)
+  return out
 }
 
-// Layout (local units, K root units each). Claude's slot sits above the person in the
-// Left margin: the person, then Claude's bed. Right margin: the three workers, side by
-// side. All of them stand on the same ground line.
+// ---------- the two groups ----------
 const CSX = 38 // Claude's bed x (Claude stands at CSX + 4)
 
 const whipPts = (pose: 'W1' | 'W2' | 'W3'): [number, number][] => {
@@ -788,99 +1093,224 @@ const whipPts = (pose: 'W1' | 'W2' | 'W3'): [number, number][] => {
   return [[hx, hy], [hx + 8, hy - 2], [CSX + 14, GH - 16]]
 }
 
-const leftInner = () => {
-  const poses: Pose[] = ['A', 'B', 'R', 'W1', 'W2', 'W3']
-  const crack = [[2, 0], [2, 1], [2, 3], [2, 4], [0, 2], [1, 2], [3, 2], [4, 2]]
-  const shock = new Cv(LW, GH)
-  crack.forEach(([x, y]) => shock.set(CSX + 12 + x!, GH - 19 + y!, '#ffd45e'))
-  return `${slot(CAST[0]!, GH, CSX + 4, CSX)}
+// what is always drawn on the left: the dancing person (three poses) and Claude's bed
+const leftStatic = () => {
+  const poses: Pose[] = ['A', 'B', 'R']
+  return `${slotSleep(CAST[0]!, GH, CSX)}
 ${poses.map(p => `<g class="p${p}">${heroPose(p)}</g>`).join('')}
+<g class="heart">${HEART.svg(HX + CXH - 4, HY - 6)}</g><g class="cbub">${CHECK.svg(CSX + 18, GH - 44)}</g>`
+}
+const whipCache: { v?: string } = {}
+// drawn only while the prompt is being whipped in
+const whipExtras = () => {
+  if (whipCache.v !== undefined) return whipCache.v
+  const tx = CSX + 14
+  const ty = GH - 18
+  const sparks = [[0, -6], [-9, -3], [9, -3], [-6, 5], [6, 5]].map(([dx, dy]) => SPARK.svg(tx + dx! - 2, ty + dy!)).join('')
+  const rings = [5, 9, 13].map((r, i) => `<g class="ring ring${i}">${ringCv(r).svg(tx - r - 1, ty - r - 1)}</g>`).join('')
+  const chat = [0, 1].map(i => `<g class="chat chat${i}">${burstText(CHAT_POOL[(st.chatT + i) % CHAT_POOL.length]!).svg(LW - 45 - i * 2, GH - 70 - i * 4)}</g>`).join('')
+  const streaks = new Cv(LW, GH)
+  for (const [dx, dy, len] of [[3, -3, 7], [6, 1, 9], [2, 4, 6]] as const) streaks.rect(HAND.W3[0] + dx, HAND.W3[1] + dy, len, 1, '#ffffff')
+  const poses: Pose[] = ['W1', 'W2', 'W3']
+  whipCache.v = `${poses.map(p => `<g class="p${p}">${heroPose(p)}</g>`).join('')}
 ${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPts(p), '#f1e2b0').svg(0, 0)}</g>`).join('')}
-<g class="wcrack">${shock.svg(0, 0)}</g>
-<g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 32}h2v6h-2zM${CSX + 16} ${GH - 24}h2v2h-2z"/></g>
-<g class="heart">${HEART.svg(HX + CXH - 4, HY - 6)}</g>
-<g class="cbub">${CHECK.svg(CSX + 18, GH - 40)}</g>
-`
+<g class="wcrack">${sparks}${streaks.svg(0, 0)}</g>${rings}${chat}
+<g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 36}h2v6h-2zM${CSX + 16} ${GH - 28}h2v2h-2z"/></g>`
+  return whipCache.v
 }
+const thinkCl = () => `<g class="think think-cl"><g transform="translate(${CSX + 10} ${GH - 60})">${thinkBubble()}${[0, 1, 2].map(i => `<g class="dot d${i}"><path fill="#1a1c2c" d="M${4 + i * 5} 3h2v2h-2z"/></g>`).join('')}</g></g>`
+const csayMarkup = () => `<g class="csay">${speech(CLAUDE_RECV_POOL[st.cRecv % CLAUDE_RECV_POOL.length]!, false, w => LW - w, HY + 1)}</g>`
 
-const rightInner = () =>
-  CAST.slice(1)
-    .map((c, i) => `${slot(c, GH, i * 30 + 4, i * 30)}<g class="spk spk-${c.id}">${SPARK.svg(i * 30 + 21, GH - 34)}</g>`)
-    .join('\n')
-const LEFT_INNER = leftInner()
-const RIGHT_INNER = rightInner()
+const rightStatic = () => CAST.slice(1).map((c, i) => slotSleep(c, GH, i * 30)).join('\n')
+const LEFT_STATIC = leftStatic()
+const RIGHT_STATIC = rightStatic()
 
-// message envelopes cross the sky between Claude and whoever works
-const win = (a: number, b: number) => `${a}%,${b}%{opacity:1}`
-const WIN = {
-  W1: [41.6, 54.1],
-  W2: [54.1, 64.5],
-  W3: [64.5, 81.2],
+// ---------- animation helpers ----------
+// A keyframe set that shows an element (opacity 1) only inside the given windows (seconds).
+type Wins = readonly (readonly [number, number])[]
+const kfw = (name: string, wins: Wins, T: number) => {
+  const p = (t: number) => ((t / T) * 100).toFixed(2)
+  let s = `@keyframes ${name}{0%{opacity:0}`
+  for (const [a, b] of wins) s += `${p(a)}%{opacity:1}${b >= T ? '' : `${p(b)}%{opacity:0}`}`
+  const endsOn = wins.length > 0 && wins[wins.length - 1]![1] >= T
+  return `${s}100%{opacity:${endsOn ? 1 : 0}}}`
+}
+// run keyframes `kf` that last T seconds, `E` seconds in (so a redraw never restarts them)
+const an = (kf: string, T: number, E: number) => `animation:${kf} ${T}s steps(1) ${(-E).toFixed(2)}s forwards`
+// words of a speech bubble appear one after another
+const wordCss = (cont: string, base: number, step: number, E: number) =>
+  Array.from({ length: 10 }, (_, k) => `${cont} .w${k}{animation:wd .01s steps(1) ${(base + step * k - E).toFixed(2)}s forwards}`).join('')
+
+// ---------- timelines (seconds) ----------
+const TW = 4.2 // the prompt: dance + bubble, two whip cracks, Claude wakes
+const WW = {
+  A: [[0, 0.5], [1, 1.5], [2, 2.3]],
+  B: [[0.5, 1], [1.5, 2]],
+  W1: [[2.3, 2.55], [3.1, 3.35]],
+  W2: [[2.55, 2.8], [3.35, 3.55]],
+  W3: [[2.8, 3.1], [3.55, 3.9]],
+  R: [[3.9, TW]],
+  say: [[0, 2.3]],
+  crack: [[2.8, 3.1], [3.55, 3.9]],
+  ring0: [[2.8, 2.9], [3.55, 3.65]],
+  ring1: [[2.9, 3.0], [3.65, 3.75]],
+  ring2: [[3.0, 3.1], [3.75, 3.85]],
+  chat0: [[2.8, 3.25]],
+  chat1: [[3.55, 4.05]],
+  bang: [[3.55, TW]],
+  asleep: [[0, 3.9]],
+  awake: [[3.9, TW]],
+  tab: [[4.0, TW]],
+  jolt: [[2.8, 2.95], [3.55, 3.7]],
 } as const
+const TF = 4.4 // Claude has the order: "Gì nhiều việc vậy sếp", then thinking
+const TC = 3.8 // Claude hands a job over (teasing line + throws the letter)
+const TS = 5.6 // a worker's whole wake-up
+const WS = {
+  asleep: [[0, 1.15]],
+  awake: [[1.15, TS]],
+  hit: [[1.15, 1.7]],
+  ssj: [[1.7, 3.3]],
+  dazed: [[1.15, 1.7]],
+  normal: [[1.7, TS]],
+  paper: [[3.3, 5.3]],
+  read: [[3.3, 4.7]],
+  think: [[4.7, TS]],
+} as const
+const TR = 1.8 // a worker throws its result back at Claude
+const TG = 2.4 // the angry desk-slam
 
-const castCss = () => {
-  return CAST.map(c => {
-  const sit = sitOf(c)
-  const base = c.id === 'cl' ? '.lp' : `.a-${c.id}`
-  const out = [
-    `@keyframes sit-${c.id}{to{transform:translateY(-${sit}px)}}`,
-    `${base} .desk-${c.id}{opacity:1}`,
-    `${base} .${c.id}-aw .chairb{opacity:1}`,
-    `${base} .${c.id}-aw .sit{animation:sit-${c.id} .01s steps(1) forwards}`,
-    `${base} .${c.id}-aw .h1{animation:typ .3s steps(1) infinite}`,
-    `${base} .${c.id}-aw .h2{animation:typ .3s steps(1) infinite .15s}`,
-  ]
-  if (c.id === 'cl') {
-    out.push(`.lp .desk-cl{opacity:0;animation:popIn .3s steps(1) forwards}`, `.lp .cl-aw .chairb{opacity:0;animation:popIn .3s steps(1) forwards}`)
-    return out.join('\n')
+const dynCss = (now: number): string => {
+  const E = (at: number) => Math.max(0, (now - at) / 1000)
+  const o: string[] = []
+  // ----- the prompt: dance, "dậy làm đi mày", two cracks of the whip -----
+  if (st.phase === 'whip') {
+    const e = E(st.whipAt)
+    const k = (n: string, w: Wins) => o.push(kfw(n, w, TW))
+    k('kA', WW.A); k('kB', WW.B); k('kW1', WW.W1); k('kW2', WW.W2); k('kW3', WW.W3); k('kR', WW.R); k('kSay', WW.say)
+    k('kCr', WW.crack); k('kR0', WW.ring0); k('kR1', WW.ring1); k('kR2', WW.ring2); k('kC0', WW.chat0); k('kC1', WW.chat1)
+    k('kBang', WW.bang); k('kAsl', WW.asleep); k('kAwk', WW.awake); k('kTab', WW.tab)
+    o.push(`@keyframes kJolt{0%{transform:translate(0,0)}${WW.jolt.map(([a, b]) => `${((a / TW) * 100).toFixed(2)}%{transform:translate(2px,-1px)}${(((a + b) / 2 / TW) * 100).toFixed(2)}%{transform:translate(-2px,1px)}${((b / TW) * 100).toFixed(2)}%{transform:translate(0,0)}`).join('')}100%{transform:translate(0,0)}}`)
+    const pairs: [string, string][] = [['.ph-whip .pA', 'kA'], ['.ph-whip .pB', 'kB'], ['.ph-whip .pW1,.ph-whip .wW1', 'kW1'], ['.ph-whip .pW2,.ph-whip .wW2', 'kW2'], ['.ph-whip .pW3,.ph-whip .wW3', 'kW3'], ['.ph-whip .pR', 'kR'], ['.ph-whip .hsay', 'kSay'], ['.ph-whip .wcrack', 'kCr'], ['.ph-whip .ring0', 'kR0'], ['.ph-whip .ring1', 'kR1'], ['.ph-whip .ring2', 'kR2'], ['.ph-whip .chat0', 'kC0'], ['.ph-whip .chat1', 'kC1'], ['.ph-whip .bang', 'kBang'], ['.ph-whip .bed-cl', 'kAsl'], ['.ph-whip .cl-aw', 'kAwk'], ['.ph-whip .tab', 'kTab']]
+    for (const [sel, kf] of pairs) o.push(`${sel}{${an(kf, TW, e)}}`)
+    o.push(`.ph-whip .cl-sl{${an('kAsl', TW, e)},kJolt ${TW}s steps(1) ${(-e).toFixed(2)}s forwards}`)
+    o.push(`.ph-whip .cl-aw .jmp{animation:jmp .5s steps(5) ${(3.9 - e).toFixed(2)}s 1 both}`)
+    o.push(wordCss('.ph-whip .hsay', 0.2, 0.4, e))
   }
-  out.push(
-    `.a-${c.id} .${c.id}-sl{opacity:0}.a-${c.id} .${c.id}-aw{opacity:1}.a-${c.id} .bed-${c.id}{opacity:0}`,
-    `.a-${c.id} .spk-${c.id}{opacity:1;animation:blink .5s steps(2) infinite}`,
-    `.s-${c.id} .${c.id}-aw .dz{animation:dzA 1.4s steps(1) forwards}`,
-    `.s-${c.id} .${c.id}-aw .nm{animation:nmA 1.4s steps(1) forwards}`,
-    `.s-${c.id} .${c.id}-aw .jmp{animation:jmp .5s steps(5) 1}`,
-    `.s-${c.id} .desk-${c.id}{opacity:0;animation:popIn .3s steps(1) 1.4s forwards}`,
-    `.s-${c.id} .${c.id}-aw .chairb{opacity:0;animation:popIn .3s steps(1) 1.4s forwards}`,
-    `.s-${c.id} .${c.id}-aw .sit{animation-delay:1.4s}`,
-    `.g-${c.id} .${c.id}-aw .sit{animation:none}`,
-    `.g-${c.id} .${c.id}-aw .chairb{opacity:0}`,
-    `.g-${c.id} .desk-${c.id}{animation:slam 2.4s steps(1) forwards}`,
-    `.g-${c.id} .${c.id}-aw .lap{animation:yeet 2.4s steps(14) forwards}`,
-    `.g-${c.id} .${c.id}-aw .hand{opacity:0}`,
-    `.g-${c.id} .${c.id}-aw .jmp{animation:stomp .4s steps(4) 6}`,
-    `.g-${c.id} .${c.id}-aw .rd{animation:redf .3s steps(2) infinite}`,
-    `.g-${c.id} .${c.id}-aw .vein{animation:blink .3s steps(2) infinite}`,
-    `.g-${c.id} .${c.id}-aw .stm1{animation:steam 1s steps(4) infinite}`,
-    `.g-${c.id} .${c.id}-aw .stm2{animation:steam 1s steps(4) infinite .5s}`,
-    `.s-${c.id} .pk-${c.id}-in{opacity:1;animation:envIn 1.1s steps(11) forwards}`,
-    `.r-${c.id} .pk-${c.id}-out{opacity:1;animation:envOut 1.2s steps(12) forwards}`,
-  )
-  return out.join('\n')
-  }).join('\n')
+  // ----- Claude has the order -----
+  if (st.fresh) {
+    const e = E(st.freshAt)
+    o.push(kfw('kCsay', [[0, 3.4]], TF), kfw('kCth', [[3.4, TF]], TF), kfw('kCdz', [[0, 1.2]], TF))
+    o.push(`.dz-cl .csay{${an('kCsay', TF, e)}}`, `.dz-cl .think-cl{${an('kCth', TF, e)}}`, `.dz-cl .cl-aw .dz{${an('kCdz', TF, e)}}`)
+    o.push(wordCss('.dz-cl .csay', 0.2, 0.45, e))
+  }
+  // ----- Claude hands a job over: teasing line, throws the letter -----
+  if (st.send.size > 0 && now - st.cAt < TC * 1000) {
+    const e = E(st.cAt)
+    o.push(kfw('kCs', [[0, 3.6]], TC))
+    const p = (t: number) => ((t / TC) * 100).toFixed(2)
+    o.push(`@keyframes kOutR{0%{opacity:0;transform:translateX(0)}${p(0)}%{opacity:1;transform:translateX(0);animation-timing-function:steps(8)}${p(0.7)}%{opacity:1;transform:translateX(36px)}${p(0.8)}%{opacity:0}100%{opacity:0}}`)
+    o.push(`.say .say-b{${an('kCs', TC, e)}}`, `.say .pk-cl-out{animation:kOutR ${TC}s linear ${(-e).toFixed(2)}s forwards}`, `.say .cl-aw .jmp{animation:jmp .45s steps(5) ${(-e).toFixed(2)}s 1}`)
+    o.push(wordCss('.say .say-b', 0.1, 0.45, e))
+  }
+  // ----- each worker: letter on the head, Super Saiyan, reads the task -----
+  for (const w of ['cx', 'ds', 'gp']) {
+    const x = `.s-${w}`
+    if (st.send.has(w)) {
+      const e = E(st.sendAt[w] ?? now)
+      const k = (n: string, ws: Wins) => o.push(kfw(`${n}${w}`, ws, TS))
+      k('sl', WS.asleep); k('aw', WS.awake); k('hi', WS.hit); k('ss', WS.ssj); k('dz', WS.dazed); k('pa', WS.paper); k('rd', WS.read); k('th', WS.think)
+      o.push(kfw(`dk${w}`, [[3.3, TS]], TS))
+      const p = (t: number) => ((t / TS) * 100).toFixed(2)
+      o.push(`@keyframes fall${w}{0%{opacity:0;transform:translate(-30px,-34px)}${p(0.45)}%{opacity:1;transform:translate(-30px,-34px);animation-timing-function:steps(7)}${p(1.15)}%{opacity:1;transform:translate(0,0)}${p(1.35)}%{opacity:0;transform:translate(0,0)}100%{opacity:0}}`)
+      const A = (sel: string, n: string) => o.push(`${x} ${sel}{${an(`${n}${w}`, TS, e)}}`)
+      A(`.${w}-sl,${x} .bed-${w}`, 'sl'); A(`.${w}-aw`, 'aw'); A(`.hit-${w}`, 'hi'); A(`.aura-${w},${x} .ssj-${w},${x} .rdw,${x} .shout-${w}`, 'ss')
+      A(`.${w}-aw .dz`, 'dz'); A(`.paper-${w}`, 'pa'); A(`.wsay-${w}`, 'rd'); A(`.think-${w}`, 'th'); A(`.desk-${w}`, 'dk'); A(`.${w}-aw .chairb`, 'dk')
+      o.push(`${x} .pk-${w}-in{animation:fall${w} ${TS}s linear ${(-e).toFixed(2)}s forwards}`)
+      o.push(`${x} .${w}-aw .sit{animation:sit-${w} .01s steps(1) ${(3.3 - e).toFixed(2)}s forwards}`)
+      o.push(`${x} .${w}-aw .jmp{animation:jmp .5s steps(5) ${(1.15 - e).toFixed(2)}s 1,stomp .4s steps(4) ${(1.7 - e).toFixed(2)}s 4}`)
+      o.push(wordCss(`${x} .shout-${w}`, 1.75, 0.1, e), wordCss(`${x} .wsay-${w}`, 3.35, 0.45, e))
+    }
+    // ----- the result is thrown back at Claude -----
+    if (st.recv.has(w)) {
+      const e = E(st.recvAt[w] ?? now)
+      const p = (t: number) => ((t / TR) * 100).toFixed(2)
+      o.push(`@keyframes bk${w}{0%{opacity:1;transform:translateX(0)}${p(0.6)}%{opacity:1;transform:translateX(-36px)}${p(0.7)}%{opacity:0}100%{opacity:0}}`)
+      o.push(`.r-${w} .pk-${w}-out{animation:bk${w} ${TR}s steps(9) ${(-e).toFixed(2)}s forwards}`)
+    }
+    // ----- the angry desk-slam -----
+    if (st.rage.has(w)) {
+      const e = E(st.rageAt[w] ?? now)
+      const g = `.g-${w}`
+      o.push(`${g} .desk-${w}{animation:slam ${TG}s steps(1) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .lap{animation:yeet ${TG}s steps(14) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .jmp{animation:stomp .4s steps(4) ${(-e).toFixed(2)}s 6}`)
+    }
+  }
+  // ----- Claude catches the thrown result with his head -----
+  if (st.recv.size > 0 && now - st.rAt < TR * 1000) {
+    const e = E(st.rAt)
+    const p = (t: number) => ((t / TR) * 100).toFixed(2)
+    o.push(kfw('kCh', [[1.25, TR]], TR))
+    o.push(`@keyframes kInL{0%{opacity:0;transform:translate(36px,-30px)}${p(0.55)}%{opacity:1;transform:translate(36px,-30px);animation-timing-function:steps(7)}${p(1.25)}%{opacity:1;transform:translate(0,0)}${p(1.45)}%{opacity:0}100%{opacity:0}}`)
+    o.push(`.rcv .pk-cl-in{animation:kInL ${TR}s linear ${(-e).toFixed(2)}s forwards}`, `.rcv .hit-cl{${an('kCh', TR, e)}}`, `.rcv .cl-aw .jmp{animation:jmp .5s steps(5) ${(1.25 - e).toFixed(2)}s 1}`)
+  }
+  return o.join('\n')
 }
+
+// ---------- stylesheet (what does not depend on the clock) ----------
+const castCss = () =>
+  CAST.map(c => {
+    const sit = sitOf(c)
+    const base = c.id === 'cl' ? '.lp' : `.a-${c.id}`
+    const out = [
+      `@keyframes sit-${c.id}{to{transform:translateY(-${sit}px)}}`,
+      `${base} .desk-${c.id}{opacity:1}`,
+      `${base} .${c.id}-aw .chairb{opacity:1}`,
+      `${base} .${c.id}-aw .sit{animation:sit-${c.id} .01s steps(1) forwards}`,
+      `${base} .${c.id}-aw .h1{animation:typ .3s steps(1) infinite}`,
+      `${base} .${c.id}-aw .h2{animation:typ .3s steps(1) infinite .15s}`,
+    ]
+    if (c.id === 'cl') {
+      out.push(`.lp .desk-cl{opacity:0;animation:popIn .3s steps(1) forwards}`, `.lp .cl-aw .chairb{opacity:0;animation:popIn .3s steps(1) forwards}`)
+    } else {
+      out.push(
+        `.a-${c.id} .${c.id}-sl{opacity:0}.a-${c.id} .${c.id}-aw{opacity:1}.a-${c.id} .bed-${c.id}{opacity:0}`,
+        `.a-${c.id} .spk-${c.id}{opacity:1;animation:blink .5s steps(2) infinite}`,
+        `.g-${c.id} .${c.id}-aw .sit{animation:none}`,
+        `.g-${c.id} .${c.id}-aw .chairb{opacity:0}`,
+        `.g-${c.id} .${c.id}-aw .hand{opacity:0}`,
+        `.g-${c.id} .${c.id}-aw .rdw{opacity:1}`,
+        `.g-${c.id} .${c.id}-aw .vein{animation:blink .3s steps(2) infinite}`,
+        `.g-${c.id} .${c.id}-aw .stm1{animation:steam 1s steps(4) infinite}`,
+        `.g-${c.id} .${c.id}-aw .stm2{animation:steam 1s steps(4) infinite .5s}`,
+      )
+    }
+    return out.join('\n')
+  }).join('\n')
 
 const sceneCss = () => `
 .cl-sl,.cx-sl,.ds-sl,.gp-sl{opacity:1}
-.cl-aw,.cx-aw,.ds-aw,.gp-aw,.dz,.chairb,.desk,.vein,.stm,.rd,.tab,.pR,.pW1,.pW2,.pW3,.wW1,.wW2,.wW3,.wcrack,.bang,.hsay,.heart,.cbub,.pk,.spk,.say-b,.wd{opacity:0}
+.cl-aw,.cx-aw,.ds-aw,.gp-aw,.dz,.chairb,.desk,.vein,.stm,.rd,.rdw,.tab,.pR,.pW1,.pW2,.pW3,.wW1,.wW2,.wW3,.wcrack,.bang,.hsay,.heart,.cbub,.pk,.spk,.say-b,.wd,.aura,.ssj,.hit,.paper,.wsay,.shout,.think,.csay,.ring,.chat{opacity:0}
 .ca .cl-sl{opacity:0}.ca .cl-aw{opacity:1}.ca .bed-cl{opacity:0}
-.ph-whip .bed-cl{animation:kCs 2.4s steps(1) forwards}
 .lap,.tshake{transform-box:fill-box;transform-origin:center}
-.pA{animation:dA 1s steps(1) infinite}.pB{animation:dB 1s steps(1) infinite}
+.pA{animation:dA .6s steps(1) infinite}.pB{animation:dB .6s steps(1) infinite}
 @keyframes dA{0%{opacity:1}50%{opacity:0}}
 @keyframes dB{0%{opacity:0}50%{opacity:1}}
 .bob{animation:bob .8s steps(1) infinite}
 .wob{animation:wob .6s steps(1) infinite}
 .breath{animation:br 3s steps(1) infinite}
-@keyframes br{0%{transform:translateY(0)}50%{transform:translateY(-1px)}}
+.rd{animation:redf .3s steps(2) infinite}
+.ar0{animation:fl0 .3s steps(1) infinite}.ar1{animation:fl1 .3s steps(1) infinite}
+@keyframes fl0{0%{opacity:1}50%{opacity:0}}
+@keyframes fl1{0%{opacity:0}50%{opacity:1}}
+.dot{animation:blink .9s steps(1) infinite}.d1{animation-delay:.3s}.d2{animation-delay:.6s}
+@keyframes br{0%{transform:translateY(0)}35%{transform:translateY(-1px)}70%{transform:translateY(-1px)}}
 @keyframes bob{0%{transform:translateY(0)}50%{transform:translateY(-1px)}100%{transform:translateY(0)}}
 @keyframes wob{0%{transform:translateX(-1px)}50%{transform:translateX(1px)}100%{transform:translateX(-1px)}}
-@keyframes jmp{0%{transform:translateY(0)}30%{transform:translateY(-6px)}60%{transform:translateY(0)}80%{transform:translateY(-1px)}100%{transform:translateY(0)}}
-@keyframes dzA{0%,99%{opacity:1}100%{opacity:0}}
-@keyframes nmA{0%,99%{opacity:0}100%{opacity:1}}
-@keyframes blink{0%{opacity:1}50%{opacity:.2}100%{opacity:1}}
+@keyframes jmp{0%{transform:translateY(0) scaleY(1)}12%{transform:translateY(1px)}35%{transform:translateY(-6px)}50%{transform:translateY(-7px)}70%{transform:translateY(-2px)}85%{transform:translateY(1px)}100%{transform:translateY(0)}}
+@keyframes blink{0%{opacity:1}33%{opacity:.15}66%{opacity:1}}
 @keyframes typ{0%{transform:translateY(0)}50%{transform:translateY(-1px)}}
 @keyframes popIn{0%,32%{opacity:0}33%,65%{opacity:.5}66%,100%{opacity:1}}
+@keyframes wd{0%,100%{opacity:1}}
 @keyframes slam{0%{opacity:1;transform:translateY(0)}6%{transform:translateY(2px)}12%{transform:translateY(0)}18%{transform:translateY(2px)}24%{transform:translateY(0)}30%{transform:translateY(2px)}36%{transform:translateY(0)}58%{opacity:1}60%,100%{opacity:0}}
 @keyframes yeet{0%,18%{opacity:1;transform:translate(0,0) rotate(0deg)}70%{opacity:1;transform:translate(18px,-16px) rotate(540deg)}71%,100%{opacity:0;transform:translate(18px,-16px)}}
 @keyframes stomp{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(0)}}
@@ -890,46 +1320,13 @@ const sceneCss = () => `
 .zz{animation:zz 3s steps(4) infinite}.zz2{animation-delay:-1.5s}
 @keyframes zz{0%{opacity:0;transform:translate(0,3px)}25%{opacity:1;transform:translate(0,1px)}75%{opacity:1;transform:translate(2px,-3px)}100%{opacity:0;transform:translate(2px,-5px)}}
 .tb .tab{opacity:1}
-.say .pk-cl-out{opacity:1;animation:envR 1.1s steps(11) forwards}
-.rcv .pk-cl-in{opacity:1;animation:envL 1.2s steps(12) forwards}
-@keyframes envIn{0%{opacity:1;transform:translateX(-20px)}85%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(0)}}
-@keyframes envOut{0%{opacity:1;transform:translateX(0)}85%{opacity:1;transform:translateX(-20px)}100%{opacity:0;transform:translateX(-20px)}}
-@keyframes envR{0%{opacity:1;transform:translateX(0)}85%{opacity:1;transform:translateX(20px)}100%{opacity:0;transform:translateX(20px)}}
-@keyframes envL{0%{opacity:1;transform:translateX(20px)}85%{opacity:1;transform:translateX(0)}100%{opacity:0;transform:translateX(0)}}
+.th .think-cl{opacity:1}
 .say .tshake{animation:shake .2s steps(1) infinite}
 .ping{animation:blink .6s steps(2) infinite}
-.ph-whip .pA{animation:wA 2.4s steps(1) forwards}
-.ph-whip .pB{animation:wB 2.4s steps(1) forwards}
-.ph-whip .pW1{animation:kW1 2.4s steps(1) forwards}.ph-whip .wW1{animation:kW1 2.4s steps(1) forwards}
-.ph-whip .pW2{animation:kW2 2.4s steps(1) forwards}.ph-whip .wW2{animation:kW2 2.4s steps(1) forwards}
-.ph-whip .pW3{animation:kW3 2.4s steps(1) forwards}.ph-whip .wW3{animation:kW3 2.4s steps(1) forwards}
-.ph-whip .wcrack{animation:kW3 2.4s steps(1) forwards}
-.ph-whip .pR{animation:kR 2.4s steps(1) forwards}
-.ph-whip .hsay{animation:kSay 2.4s steps(1) forwards}
-.ph-whip .bang{animation:kBang 2.4s steps(1) forwards}
-.ph-whip .cl-sl{animation:kCs 2.4s steps(1) forwards}
-.ph-whip .cl-aw{animation:kCw 2.4s steps(1) forwards}
 .ph-whip .cl-aw .dz{opacity:1}
-.ph-whip .cl-aw .nm{opacity:0}
-.ph-whip .cl-aw .jmp{animation:jmp .5s steps(5) 1.58s 1 both}
-@keyframes wA{0%{opacity:1}20.8%{opacity:0}100%{opacity:0}}
-@keyframes wB{0%{opacity:0}20.8%{opacity:1}41.6%{opacity:0}100%{opacity:0}}
-@keyframes kW1{0%,${WIN.W1[0] - 0.1}%{opacity:0}${win(...WIN.W1)}${WIN.W1[1] + 0.1}%,100%{opacity:0}}
-@keyframes kW2{0%,${WIN.W2[0] - 0.1}%{opacity:0}${win(...WIN.W2)}${WIN.W2[1] + 0.1}%,100%{opacity:0}}
-@keyframes kW3{0%,${WIN.W3[0] - 0.1}%{opacity:0}${win(...WIN.W3)}${WIN.W3[1] + 0.1}%,100%{opacity:0}}
-@keyframes kR{0%,81.2%{opacity:0}81.3%,100%{opacity:1}}
-@keyframes kSay{0%,41.5%{opacity:1}41.6%,100%{opacity:0}}
-@keyframes kBang{0%,64.4%{opacity:0}64.5%,95%{opacity:1}95.1%,100%{opacity:0}}
-@keyframes kCs{0%,65.9%{opacity:1}66%,100%{opacity:0}}
-@keyframes kCw{0%,65.9%{opacity:0}66%,100%{opacity:1}}
-.dz-cl .cl-aw .dz{animation:dzA 1.2s steps(1) forwards}
-.dz-cl .cl-aw .nm{animation:nmA 1.2s steps(1) forwards}
 .ph-done .heart{opacity:1;animation:blink .8s steps(2) infinite}
 .ph-done .cbub{opacity:1}
 .say .say-b{opacity:1}
-.ph-whip .hsay .wd{animation:wd 2.4s steps(1) forwards}
-.say .say-b .wd{animation:wd 2.2s steps(1) forwards}
-@keyframes wd{0%,99%{opacity:1}100%{opacity:1}}
 ${castCss()}`
 
 // ---------- runtime state: the scene reacts to the session ----------
@@ -944,6 +1341,17 @@ const st = {
   rage: new Set<string>(),
   hSay: 0,
   cSay: 0,
+  cRecv: 0,
+  wRecv: {} as Record<string, number>,
+  wShout: {} as Record<string, number>,
+  chatT: 0,
+  whipAt: 0,
+  freshAt: 0,
+  cAt: 0,
+  rAt: 0,
+  sendAt: {} as Record<string, number>,
+  recvAt: {} as Record<string, number>,
+  rageAt: {} as Record<string, number>,
 }
 
 // Claude holds a tablet while orders or reports come in, a laptop when working alone.
@@ -957,6 +1365,7 @@ const sceneClasses = () =>
     st.send.size > 0 ? 'say' : '',
     st.recv.size > 0 ? 'rcv' : '',
     claudeBusy() ? 'tb' : st.phase === 'work' ? 'lp' : '',
+    st.phase === 'work' && !st.fresh && st.awake.size + st.send.size === 0 ? 'th' : '',
     ...[...st.awake, ...st.recv, ...st.rage].map(w => `a-${w}`),
     ...[...st.rage].map(w => `g-${w}`),
     ...[...st.send].map(w => `s-${w}`),
@@ -975,13 +1384,29 @@ const cloud = (x: number, y: number, c: string) =>
   `<g fill="${c}"><rect x="${x + 2}" y="${y}" width="8" height="2"/><rect x="${x}" y="${y + 2}" width="14" height="2"/></g>`
 
 // the lines people say (changes with each prompt / hand-over)
-const bubbles = () =>
-  `<g class="hsay">${speech(HERO_SAY[st.hSay % HERO_SAY.length]!, true, () => 0, HY + 1)}</g><g class="say-b">${speech(CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
+const heroSay = () => `<g class="hsay">${speech(HERO_SAY[st.hSay % HERO_SAY.length]!, true, () => 0, HY + 1)}</g>`
+const claudeSay = () => `<g class="say-b">${speech(CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
 
-const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_INNER}${bubbles()}</svg></g>
-<g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_INNER}</svg></g>\n<g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
+const active = (w: string) => st.awake.has(w) || st.send.has(w) || st.recv.has(w) || st.rage.has(w)
+const leftDynamic = () => {
+  if (st.phase === 'idle') return ''
+  let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
+  if (st.phase === 'whip') o += whipExtras() + heroSay()
+  if (st.fresh) o += csayMarkup()
+  if (st.phase === 'work') o += thinkCl()
+  if (st.send.size > 0) o += claudeSay()
+  return o
+}
+const rightDynamic = () =>
+  CAST.slice(1)
+    .map((c, i) => (active(c.id) ? slotAwake(c, GH, i * 30 + 4, i * 30, RW) : ''))
+    .join('\n')
 
-const buildScene = (now: number) => {
+const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_STATIC}${leftDynamic()}</svg></g>
+<g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_STATIC}${rightDynamic()}</svg></g>
+<g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
+
+const buildSceneWith = (now: number, decor: boolean) => {
   const d = (period: number) => `-${(now / 1000) % period}s`
   return `<svg xmlns="http://www.w3.org/2000/svg" class="${sceneClasses()}" viewBox="0 0 160 90" preserveAspectRatio="xMidYMax slice" shape-rendering="crispEdges">
 <style>
@@ -994,26 +1419,33 @@ const buildScene = (now: number) => {
 @keyframes dr{from{transform:translateX(-30px)}to{transform:translateX(190px)}}
 ${bucketCss()}
 ${sceneCss()}
+${dynCss(now)}
 </style>
 <rect width="160" height="90" fill="#1a1c2c"/>
 <rect y="40" width="160" height="50" fill="#1f2340"/>
 <rect y="62" width="160" height="28" fill="#262b4d"/>
-${stars}
-<g class="c1" style="animation-delay:${d(90)}">${cloud(0, 14, '#2f3560')}</g>
-<g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>
+${decor ? stars : ''}
+${decor ? `<g class="c1" style="animation-delay:${d(90)}">${cloud(0, 14, '#2f3560')}</g><g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>` : ''}
 <g class="Mn"><rect x="96" y="10" width="8" height="8" fill="#ffcd75"/><rect x="98" y="8" width="4" height="12" fill="#ffcd75"/><rect x="94" y="12" width="12" height="4" fill="#ffcd75"/></g>
 <g class="Gr">${GROUND.back.svg(0, FLOOR - 2)}</g>
 ${sceneStatic()}
 </svg>`
 }
 
+// The app refuses a scene over 131,072 characters, so drop the stars and clouds if it gets close.
+const buildScene = (now: number) => {
+  const full = buildSceneWith(now, true)
+  return full.length > 126000 ? buildSceneWith(now, false) : full
+}
+
 const note = (wave: 'square' | 'triangle', notes: string[], step: number) => ({
   layers: [{ wave, notes, step }],
 })
 
-const LOOK: ThemeSetArgs = {
+// `frosted` (a switch in the plugin's settings, off by default) lets the app frost its panels over the scene
+const lookFor = (frosted: boolean): ThemeSetArgs => ({
   colors: theme,
-  backdrop: { scene: 'pixel-night', glass: false },
+  backdrop: { scene: 'pixel-night', glass: frosted ? { blur: 5, tint: '#171a2e', opacity: 0.5 } : false },
   style: {
     Text: { fontFamily: ['mono'], fontSize: 15, lineHeight: 24, color: '#f4f4f4' },
     Heading: { fontFamily: ['mono'], fontWeight: 'bold', letterSpacing: 1, color: '#ffcd75' },
@@ -1042,31 +1474,38 @@ const LOOK: ThemeSetArgs = {
       error: note('square', ['E3', 'C3'], 0.12),
     },
   },
-}
+})
 
 
 // ---------- reactions ----------
 let poke = (): void => {}
 let later = (_ms: number, _fn: () => void): void => {}
 let sfx = (_n: 'slam' | 'crash' | 'crack'): void => {}
+const ms = (s: number) => Math.round(s * 1000)
 
 let firstLine = true
 const startWhip = () => {
   const gen = ++st.gen
-  st.hSay = firstLine ? 0 : Math.floor(Math.random() * HERO_SAY.length)
-  firstLine = false
   mainBusy = true
+  st.hSay = firstLine ? 0 : pickNot(HERO_SAY, st.hSay)
+  st.cRecv = pickNot(CLAUDE_RECV_POOL, st.cRecv)
+  st.chatT = Math.floor(Math.random() * CHAT_POOL.length)
+  firstLine = false
   st.phase = 'whip'
+  st.whipAt = Date.now()
   poke()
-  later(1550, () => {
-    if (st.gen === gen) sfx('crack')
-  })
-  later(2400, () => {
+  for (const t of [2.8, 3.55]) {
+    later(ms(t), () => {
+      if (st.gen === gen) sfx('crack')
+    })
+  }
+  later(ms(TW), () => {
     if (st.gen === gen && st.phase === 'whip') {
       st.phase = 'work'
       st.fresh = true
+      st.freshAt = Date.now()
       poke()
-      later(1200, () => {
+      later(ms(TF), () => {
         if (st.gen === gen) {
           st.fresh = false
           poke()
@@ -1116,25 +1555,41 @@ const pickWorker = (text: string): string => {
   return [...WORKERS].sort((a, b) => (load[a] ?? 0) - (load[b] ?? 0))[0]!
 }
 
-const endWork = (w: string) => {
-  load[w] = Math.max(0, (load[w] ?? 0) - 1)
-  if ((load[w] ?? 0) > 0) return
+// the AI throws its result back at Claude's head, then slams the desk and goes to bed
+const beginReturn = (w: string) => {
   st.awake.delete(w)
   st.recv.add(w)
+  st.recvAt[w] = Date.now()
+  st.rAt = st.recvAt[w]!
   poke()
-  later(1200, () => {
+  later(ms(TR), () => {
     if (st.recv.delete(w)) {
       st.rage.add(w)
+      st.rageAt[w] = Date.now()
       poke()
       for (const t of [140, 430, 720]) later(t, () => sfx('slam'))
       later(1000, () => sfx('crash'))
-      later(2400, () => {
+      later(ms(TG), () => {
         st.rage.delete(w)
         settle()
         poke()
       })
     }
   })
+}
+
+const endWork = (w: string) => {
+  load[w] = Math.max(0, (load[w] ?? 0) - 1)
+  if ((load[w] ?? 0) > 0) return
+  // let the wake-up scene play out before the result is thrown back
+  const rem = (st.sendAt[w] ?? 0) + ms(TS) - Date.now()
+  if (rem > 0 && st.send.has(w)) {
+    later(rem, () => {
+      if ((load[w] ?? 0) === 0) beginReturn(w)
+    })
+    return
+  }
+  beginReturn(w)
 }
 
 const startWork = (w: string) => {
@@ -1144,10 +1599,15 @@ const startWork = (w: string) => {
   st.recv.delete(w)
   st.rage.delete(w)
   if (!st.awake.has(w)) {
-    st.cSay = Math.floor(Math.random() * CLAUDE_SAY.length)
+    const now = Date.now()
+    st.cSay = pickNot(CLAUDE_SAY, st.cSay)
+    st.wRecv[w] = pickNot(WORKER_RECV_POOL, st.wRecv[w] ?? -1)
+    st.wShout[w] = pickNot(WORKER_SHOUT_POOL, st.wShout[w] ?? -1)
+    st.cAt = now
+    st.sendAt[w] = now
     st.awake.add(w)
     st.send.add(w)
-    later(2200, () => {
+    later(ms(TS), () => {
       st.send.delete(w)
       poke()
     })
@@ -1170,7 +1630,38 @@ const bashWorker = (e: { command?: string }): string | undefined => {
   return undefined
 }
 
-export const register: Register = on => {
+// Background shells and monitors have no end event of their own, but every time a turn
+// stops the engine lists the background work still in flight. We follow that list: each
+// task keeps one AI awake until it drops off the list.
+type BgTask = { id: string; type: string; description?: string; command?: string }
+const bgTask = new Map<string, string>() // task id -> the AI looking after it
+const bgPending: string[] = [] // AIs woken by a background command that has not been listed yet
+
+const syncBackground = (tasks: readonly BgTask[]) => {
+  const live = tasks.filter(t => t.type !== 'subagent') // subagents are followed by their own turns
+  const ids = new Set(live.map(t => t.id))
+  for (const [id, w] of [...bgTask]) {
+    if (!ids.has(id)) {
+      bgTask.delete(id)
+      endWork(w)
+    }
+  }
+  for (const t of live) {
+    if (bgTask.has(t.id)) continue
+    const w = bgPending.shift()
+    if (w !== undefined) {
+      bgTask.set(t.id, w) // already awake for it
+    } else {
+      const named = pickWorker(`${t.command ?? ''} ${t.description ?? ''}`)
+      startWork(named)
+      bgTask.set(t.id, named)
+    }
+  }
+  // commands that finished before the list was read
+  for (const w of bgPending.splice(0)) endWork(w)
+}
+
+export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     poke = () => $.ui.invalidate('ui.render')
     later = (ms, fn) => {
@@ -1184,10 +1675,10 @@ export const register: Register = on => {
       $.ui.toast(bad)
     }
     try {
-      await $.theme.set(LOOK)
+      await $.theme.set(lookFor(options.frosted === true))
     } catch (error) {
       $.ui.log(String(error))
-      const { sound: _s, style: _y, ...rest } = LOOK
+      const { sound: _s, style: _y, ...rest } = lookFor(false)
       await $.theme.set(rest)
     }
     return next(e)
@@ -1258,10 +1749,10 @@ export const register: Register = on => {
     }
     const named = bashWorker(args)
     if (args.run_in_background === true) {
-      // a background shell has no end event: show a short burst of work
+      // wake an AI now; the next list of background work (classic.Stop) says how long to keep it up
       const w = named ?? pickWorker('')
       startWork(w)
-      later(8000, () => endWork(w))
+      bgPending.push(w)
       return next(e)
     }
     if (named === undefined) {
@@ -1273,6 +1764,30 @@ export const register: Register = on => {
     } finally {
       endWork(named)
     }
+  })
+
+  on('classic.Stop', ($, e, next) => {
+    poke = () => $.ui.invalidate('ui.render')
+    later = (ms, fn) => {
+      void $.clock.after(ms, fn)
+    }
+    sfx = n => {
+      void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
+    }
+    syncBackground(e.background_tasks ?? [])
+    return next(e)
+  })
+
+  on('classic.SubagentStop', ($, e, next) => {
+    poke = () => $.ui.invalidate('ui.render')
+    later = (ms, fn) => {
+      void $.clock.after(ms, fn)
+    }
+    sfx = n => {
+      void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
+    }
+    syncBackground(e.background_tasks ?? [])
+    return next(e)
   })
 
   on('ui.render', { component: 'Backdrop' }, ($, e, next) => {
