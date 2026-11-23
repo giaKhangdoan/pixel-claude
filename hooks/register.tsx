@@ -738,6 +738,38 @@ const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bot
   return out
 }
 
+// a short, drawable summary of some text (a prompt, a task): the first few words
+const brief = (text: string, maxWords: number, maxChars: number): string => {
+  const clean = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[`*_#>\[\]()"'{}|\\/]/g, ' ')
+    .normalize('NFC')
+  const first = clean.split(/\n|[.!?;](?:\s|$)/).map(x => x.trim()).find(x => x.length > 2) ?? ''
+  const words = first.split(/\s+/).map(w => [...w].filter(ch => VF[ch] !== undefined).join('').slice(0, 11)).filter(w => w !== '')
+  const out: string[] = []
+  let len = 0
+  for (const w of words) {
+    if (out.length >= maxWords || len + w.length + 1 > maxChars) break
+    out.push(w)
+    len += w.length + 1
+  }
+  if (out.length === 0) return ''
+  return out.join(' ') + (out.length < words.length ? '...' : '')
+}
+// a line made of an opener and a summary, kept within the 10 words a bubble can pop in
+const fit3 = (text: string): string => {
+  const ws = text.split(' ')
+  while (ws.length > 1 && (wrapText(ws.join(' '), 11).length > 3 || ws.length > 10)) ws.pop()
+  return ws.join(' ')
+}
+const joinSay = (head: string, tail: string): string => (tail === '' ? head : fit3(`${head} ${tail}`.trim()) === head.split(' ').slice(0, 10).join(' ') ? head : fit3(`${head} ${tail}`))
+const staticWords = (markup: string) => markup.replace(/class="wd w\d+"/g, 'class="wk"')
+const WORKER_NAME: Record<string, string> = { cx: 'Codex', ds: 'DeepSeek', gp: 'ChatGPT' }
+const HAND_OPEN = ["ê", "nè", "này", "ơi", "cu ơi", "bồ ơi"]
+const HAND_TAIL = ["làm giúp nha:", "lo vụ này:", "nhận việc:", "xử lý:", "cày vụ:"]
+const THINK_VERB = ["đang làm:", "xử lý:", "để tui lo:", "ok, làm:", "tui làm:"]
+
 const SPARK = new Cv(5, 5)
 ;[[2, 0], [2, 1], [0, 2], [1, 2], [2, 2], [3, 2], [4, 2], [2, 3], [2, 4]].forEach(([x, y]) => SPARK.set(x!, y!, '#ffd45e'))
 const VEIN = new Cv(5, 5)
@@ -1074,7 +1106,7 @@ const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) =
 <g class="hit hit-${c.id}">${hit}</g><g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1"><path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
 ${
   worker
-    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g><g class="think think-${c.id}"><g transform="translate(${bx + 8} ${B - 56})">${thinkBubble()}${[0, 1, 2].map(i => `<g class="dot d${i}"><path fill="#1a1c2c" d="M${4 + i * 5} 3h2v2h-2z"/></g>`).join('')}</g></g><g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
+    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g><g class="think think-${c.id}">${staticWords(speech(st.wTask[c.id] ? fit3(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`) : 'đang suy nghĩ...', true, bubX, bubTop))}</g><g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
     : `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>`
 }
 </g>
@@ -1118,7 +1150,7 @@ ${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPt
 <g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 36}h2v6h-2zM${CSX + 16} ${GH - 28}h2v2h-2z"/></g>`
   return whipCache.v
 }
-const thinkCl = () => `<g class="think think-cl"><g transform="translate(${CSX + 10} ${GH - 60})">${thinkBubble()}${[0, 1, 2].map(i => `<g class="dot d${i}"><path fill="#1a1c2c" d="M${4 + i * 5} 3h2v2h-2z"/></g>`).join('')}</g></g>`
+const thinkCl = () => `<g class="think think-cl">${staticWords(speech(st.plan !== '' ? fit3(`nghĩ: ${st.plan}`) : 'đang nghĩ...', false, w => LW - w, HY + 1))}</g>`
 const csayMarkup = () => `<g class="csay">${speech(CLAUDE_RECV_POOL[st.cRecv % CLAUDE_RECV_POOL.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const rightStatic = () => CAST.slice(1).map((c, i) => slotSleep(c, GH, i * 30)).join('\n')
@@ -1150,7 +1182,7 @@ const WW = {
   W2: [[2.55, 2.8], [3.35, 3.55]],
   W3: [[2.8, 3.1], [3.55, 3.9]],
   R: [[3.9, TW]],
-  say: [[0, 2.3]],
+  say: [[0, 2.6]],
   crack: [[2.8, 3.1], [3.55, 3.9]],
   ring0: [[2.8, 2.9], [3.55, 3.65]],
   ring1: [[2.9, 3.0], [3.65, 3.75]],
@@ -1195,7 +1227,7 @@ const dynCss = (now: number): string => {
     for (const [sel, kf] of pairs) o.push(`${sel}{${an(kf, TW, e)}}`)
     o.push(`.ph-whip .cl-sl{${an('kAsl', TW, e)},kJolt ${TW}s steps(1) ${(-e).toFixed(2)}s forwards}`)
     o.push(`.ph-whip .cl-aw .jmp{animation:jmp .5s steps(5) ${(3.9 - e).toFixed(2)}s 1 both}`)
-    o.push(wordCss('.ph-whip .hsay', 0.2, 0.4, e))
+    o.push(wordCss('.ph-whip .hsay', 0.2, 0.26, e))
   }
   // ----- Claude has the order -----
   if (st.fresh) {
@@ -1345,6 +1377,11 @@ const st = {
   wRecv: {} as Record<string, number>,
   wShout: {} as Record<string, number>,
   chatT: 0,
+  hTask: '',
+  plan: '',
+  cLine: '',
+  wTask: {} as Record<string, string>,
+  wVerb: {} as Record<string, number>,
   whipAt: 0,
   freshAt: 0,
   cAt: 0,
@@ -1384,8 +1421,8 @@ const cloud = (x: number, y: number, c: string) =>
   `<g fill="${c}"><rect x="${x + 2}" y="${y}" width="8" height="2"/><rect x="${x}" y="${y + 2}" width="14" height="2"/></g>`
 
 // the lines people say (changes with each prompt / hand-over)
-const heroSay = () => `<g class="hsay">${speech(HERO_SAY[st.hSay % HERO_SAY.length]!, true, () => 0, HY + 1)}</g>`
-const claudeSay = () => `<g class="say-b">${speech(CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
+const heroSay = () => `<g class="hsay">${speech(joinSay(HERO_SAY[st.hSay % HERO_SAY.length]!, st.hTask), true, () => 0, HY + 1)}</g>`
+const claudeSay = () => `<g class="say-b">${speech(st.cLine !== '' ? st.cLine : CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const active = (w: string) => st.awake.has(w) || st.send.has(w) || st.recv.has(w) || st.rage.has(w)
 const leftDynamic = () => {
@@ -1393,7 +1430,7 @@ const leftDynamic = () => {
   let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
   if (st.phase === 'whip') o += whipExtras() + heroSay()
   if (st.fresh) o += csayMarkup()
-  if (st.phase === 'work') o += thinkCl()
+  if (st.phase === 'work' && st.send.size === 0) o += thinkCl()
   if (st.send.size > 0) o += claudeSay()
   return o
 }
@@ -1592,7 +1629,12 @@ const endWork = (w: string) => {
   beginReturn(w)
 }
 
-const startWork = (w: string) => {
+const startWork = (w: string, task = '') => {
+  const tb = brief(task, 4, 24)
+  if (tb !== '') {
+    st.wTask[w] = tb
+    st.wVerb[w] = Math.floor(Math.random() * THINK_VERB.length)
+  }
   load[w] = (load[w] ?? 0) + 1
   const t = (tok[w] = (tok[w] ?? 0) + 1)
   if (st.phase === 'idle') st.phase = 'work'
@@ -1601,6 +1643,7 @@ const startWork = (w: string) => {
   if (!st.awake.has(w)) {
     const now = Date.now()
     st.cSay = pickNot(CLAUDE_SAY, st.cSay)
+    st.cLine = tb === '' ? '' : joinSay(`${HAND_OPEN[Math.floor(Math.random() * HAND_OPEN.length)]!} ${WORKER_NAME[w] ?? ''},`, `${tb}`)
     st.wRecv[w] = pickNot(WORKER_RECV_POOL, st.wRecv[w] ?? -1)
     st.wShout[w] = pickNot(WORKER_SHOUT_POOL, st.wShout[w] ?? -1)
     st.cAt = now
@@ -1622,6 +1665,12 @@ const startWork = (w: string) => {
   })
 }
 
+// what a shell command is for: its description, else the longest quoted text in it
+const taskOf = (e: { command?: string; description?: string }): string => {
+  if (e.description !== undefined && e.description.trim() !== '') return e.description
+  const quoted = [...(e.command ?? '').matchAll(/"([^"]{8,})"|'([^']{8,})'/g)].map(m => m[1] ?? m[2] ?? '')
+  return quoted.sort((a, b) => b.length - a.length)[0] ?? ''
+}
 const bashWorker = (e: { command?: string }): string | undefined => {
   const text = e.command ?? ''
   if (/codex/i.test(text)) return 'cx'
@@ -1692,6 +1741,8 @@ export const register: Register = (on, options) => {
     sfx = n => {
       void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
     }
+    st.hTask = brief(e.text, 4, 22)
+    st.plan = brief(e.text, 5, 28)
     startWhip()
     return next(e)
   })
@@ -1706,11 +1757,15 @@ export const register: Register = (on, options) => {
     }
     if (e.agentId === undefined) {
       mainBusy = true
-      if (st.phase === 'idle') startWhip()
+      if (st.phase === 'idle') {
+        st.hTask = brief(e.text, 4, 22)
+        st.plan = brief(e.text, 5, 28)
+        startWhip()
+      }
     } else if (!agentWorker.has(e.agentId)) {
       const w = pickWorker(e.text)
       agentWorker.set(e.agentId, w)
-      startWork(w)
+      startWork(w, e.text)
     }
     return next(e)
   })
@@ -1743,7 +1798,7 @@ export const register: Register = (on, options) => {
     sfx = n => {
       void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
     }
-    const args = e as unknown as { tool: string; command?: string; run_in_background?: boolean }
+    const args = e as unknown as { tool: string; command?: string; description?: string; run_in_background?: boolean }
     if (args.tool !== 'Bash') {
       return next(e)
     }
@@ -1751,14 +1806,14 @@ export const register: Register = (on, options) => {
     if (args.run_in_background === true) {
       // wake an AI now; the next list of background work (classic.Stop) says how long to keep it up
       const w = named ?? pickWorker('')
-      startWork(w)
+      startWork(w, taskOf(args))
       bgPending.push(w)
       return next(e)
     }
     if (named === undefined) {
       return next(e)
     }
-    startWork(named)
+    startWork(named, taskOf(args))
     try {
       return await next(e)
     } finally {

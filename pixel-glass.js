@@ -1,12 +1,12 @@
-// pixel-glass v3.5: làm các khung của trang trong suốt hẳn (nền, viền, bóng, đường kẻ) để cảnh pixel phía sau hiện rõ.
+// pixel-glass v3.6: làm các khung của trang trong suốt hẳn (nền, viền, bóng, đường kẻ) để cảnh pixel phía sau hiện rõ.
 // Giữ nguyên: CHỈ ô nhập tin nhắn (nền và viền của nó), nút màu nổi bật, chip nhỏ.
 // Hàng chọn model / quyền dưới ô nhập: chữ và nút còn, nền chỉ còn một lớp mờ nhẹ (đổi ROW_ALPHA nếu muốn), viền trong suốt.
 // Không gọi mạng, không đọc/ghi cookie hay localStorage, không gửi dữ liệu đi đâu.
 // Gỡ bỏ: gõ  pixelGlass.off()  hoặc tải lại app.
 (() => {
   if (window.pixelGlass) window.pixelGlass.off()
-  const done = new WeakSet()
-  const backed = new WeakSet() // phần tử đang làm nền mờ cho hàng chọn model / quyền
+  let done = new WeakSet()
+  let backed = new WeakSet() // phần tử đang làm nền mờ cho hàng chọn model / quyền
   const ROW_ALPHA = 0.6 // độ đục của nền sau hàng chọn model / quyền (0 = trong suốt hẳn)
   const saved = [] // [phần tử, kiểu cũ (style) trước khi đổi]
 
@@ -25,8 +25,17 @@
   // (cao hơn một ô nhập), thì nền và viền của khung đó được chuyển vào đúng ô nhập, để khung bao thành trong suốt.
   let keep = null
   let keepAt = -1e9
+  // chỉ coi là trang chat khi có ô nhập tin nhắn lớn (không tính ô tìm kiếm nhỏ)
+  const findEditor = () => {
+    for (const q of document.querySelectorAll('textarea, [contenteditable="true"], [role="textbox"]')) {
+      const r = q.getBoundingClientRect()
+      if (r.width >= 300 && r.height >= 20) return q
+    }
+    return null
+  }
+  const OVERLAY = '[role="menu"], [role="dialog"], [role="listbox"], [role="tooltip"], [role="alertdialog"], [aria-modal="true"], [data-radix-popper-content-wrapper], [data-radix-portal]'
   const findKeep = () => {
-    const ed = document.querySelector('textarea, [contenteditable="true"], [role="textbox"]')
+    const ed = findEditor()
     if (!ed) return null
     let card = null
     for (let q = ed; q && q !== document.body; q = q.parentElement) {
@@ -86,6 +95,7 @@
   const fix = el => {
     if (!(el instanceof HTMLElement) || done.has(el)) return
     done.add(el)
+    if (el.closest(OVERLAY)) return // menu, hộp thoại, gợi ý nổi: giữ nguyên
     if (inBox(el)) return // ô nhập: giữ nguyên
     const cs = getComputedStyle(el)
     const r = el.getBoundingClientRect()
@@ -135,22 +145,44 @@
         timer = 0
         const q = queue
         queue = []
-        q.forEach(walk)
+        if (on) q.forEach(walk)
       }, 150)
     }
   })
 
-  walk(document.documentElement)
+  // Chỉ bật khi đang ở đoạn chat; sang trang khác (Plugins, Cài đặt...) thì trả lại nguyên trạng.
+  let on = false
+  const revert = () => {
+    for (let i = saved.length - 1; i >= 0; i--) saved[i][0].style.cssText = saved[i][1]
+    saved.length = 0
+    done = new WeakSet()
+    backed = new WeakSet()
+    keep = null
+    keepAt = -1e9
+  }
+  const sync = () => {
+    const chat = findEditor() !== null
+    if (chat && !on) {
+      on = true
+      walk(document.documentElement)
+    } else if (!chat && on) {
+      on = false
+      queue = []
+      revert()
+    }
+  }
+  sync()
+  const tick = setInterval(sync, 500)
   obs.observe(document.body, { childList: true, subtree: true })
 
   window.pixelGlass = {
     off() {
       obs.disconnect()
       clearTimeout(timer)
-      for (const [el, css] of saved) el.style.cssText = css
-      saved.length = 0
+      clearInterval(tick)
+      revert()
       delete window.pixelGlass
     },
   }
-  console.log('pixel-glass v3.5: bật. Gõ pixelGlass.off() để gỡ.')
+  console.log('pixel-glass v3.6: chỉ hoạt động trong đoạn chat. bật. Gõ pixelGlass.off() để gỡ.')
 })()
