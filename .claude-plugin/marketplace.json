@@ -1,0 +1,6 @@
+{
+  "name": "pixel-claude-marketplace",
+  "owner": { "name": "giaKhangdoan" },
+  "description": "A pixel-art theme for the Claude desktop app.",
+  "plugins": [{ "name": "pixel-claude", "source": "./" }]
+}
