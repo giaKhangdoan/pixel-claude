@@ -712,8 +712,10 @@ const wrapText = (t: string, maxChars: number): string[] => {
 
 // A speech bubble. Each word is its own group (classes wd, w0, w1...) so the stylesheet
 // can pop them in one after another. Returns the markup.
-const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bottom: number) => {
-  const lines = wrapText(text, 11)
+const speech = (text: string, tailLeft: boolean, atX0: (w: number) => number, bottom0: number, scale = 1) => {
+  const atX = (w: number) => atX0(w * scale) / scale
+  const bottom = bottom0 / scale
+  const lines = wrapText(text, Math.floor(11 / scale))
   const cols = Math.max(...lines.map(l => l.length))
   const W = cols * VADV - 1 + 6
   const H = lines.length * (VH + 1) + 3
@@ -735,7 +737,7 @@ const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bot
       k++
     }
   })
-  return out
+  return scale === 1 ? out : `<g transform="scale(${scale})">${out}</g>`
 }
 
 // a short, drawable summary of some text (a prompt, a task): the first few words
@@ -760,13 +762,16 @@ const brief = (text: string, maxWords: number, maxChars: number): string => {
   return out.join(' ') + (out.length < words.length ? '...' : '')
 }
 // a line made of an opener and a summary, kept within the 10 words a bubble can pop in
-const fit3 = (text: string): string => {
+const fitN = (text: string, width = 11, maxLines = 3, maxWords = 10): string => {
   const ws = text.split(' ')
-  while (ws.length > 1 && (wrapText(ws.join(' '), 11).length > 3 || ws.length > 10)) ws.pop()
+  while (ws.length > 1 && (wrapText(ws.join(' '), width).length > maxLines || ws.length > maxWords)) ws.pop()
   return ws.join(' ')
 }
+const fit3 = (text: string): string => fitN(text)
 const joinSay = (head: string, tail: string): string => (tail === '' ? head : fit3(`${head} ${tail}`.trim()) === head.split(' ').slice(0, 10).join(' ') ? head : fit3(`${head} ${tail}`))
 // the newest few words of a stream of thoughts, as a short line that fits a bubble
+const TS_SCALE = 0.62 // thoughts are drawn smaller so a longer line fits
+const TS_W = Math.floor(11 / TS_SCALE)
 const tailWords = (text: string): string => {
   const clean = text
     .replace(/<([A-Za-z][\w-]*)[^>]*>[\s\S]*?<\/\1>/g, ' ')
@@ -775,16 +780,16 @@ const tailWords = (text: string): string => {
     .normalize('NFC')
   const words = clean.split(/\s+/).map(w => [...w].filter(ch => VF[ch] !== undefined).join('').slice(0, 11)).filter(w => w !== '')
   const out: string[] = []
-  for (let i = words.length - 1; i >= 0 && out.length < 9; i--) {
+  for (let i = words.length - 1; i >= 0 && out.length < 16; i--) {
     out.unshift(words[i]!)
-    if (wrapText(out.join(' '), 11).length > 3) {
+    if (wrapText(out.join(' '), TS_W).length > 5) {
       out.shift()
       break
     }
   }
   if (out.length === 0) return ''
   const lead = out.length < words.length ? '.. ' : ''
-  while (out.length > 1 && wrapText(lead + out.join(' '), 11).length > 3) out.shift()
+  while (out.length > 1 && wrapText(lead + out.join(' '), TS_W).length > 5) out.shift()
   return lead + out.join(' ')
 }
 const LIVE_TTL = 7000
@@ -1144,7 +1149,7 @@ const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) =
 <g class="hit hit-${c.id}">${hit}</g><g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1"><path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
 ${
   worker
-    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g>${focusWorker() === c.id ? `<g class="think think-${c.id}">${staticWords(speech(liveText(c.id) !== '' ? liveText(c.id) : st.wTask[c.id] ? fit3(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`) : 'đang suy nghĩ...', true, bubX, bubTop))}</g>` : ''}<g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
+    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g>${focusWorker() === c.id && (liveText(c.id) !== '' || st.wTask[c.id]) ? `<g class="think think-${c.id}">${staticWords(speech(liveText(c.id) !== '' ? liveText(c.id) : fitN(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`, TS_W, 5, 16), true, bubX, bubTop, TS_SCALE))}</g>` : ''}<g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
     : `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>`
 }
 </g>
@@ -1188,7 +1193,7 @@ ${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPt
 <g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 36}h2v6h-2zM${CSX + 16} ${GH - 28}h2v2h-2z"/></g>`
   return whipCache.v
 }
-const thinkCl = () => `<g class="think think-cl">${staticWords(speech(liveText('cl') !== '' ? liveText('cl') : st.plan !== '' ? fit3(`nghĩ: ${st.plan}`) : 'đang nghĩ...', false, w => LW - w, HY + 1))}</g>`
+const thinkCl = () => `<g class="think think-cl">${staticWords(speech(liveText('cl'), false, w => LW - w, HY + 1, TS_SCALE))}</g>`
 const csayMarkup = () => `<g class="csay">${speech(CLAUDE_RECV_POOL[st.cRecv % CLAUDE_RECV_POOL.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const rightStatic = () => CAST.slice(1).map((c, i) => slotSleep(c, GH, i * 30)).join('\n')
@@ -1233,6 +1238,12 @@ const WW = {
   tab: [[4.0, TW]],
   jolt: [[2.8, 2.95], [3.55, 3.7]],
 } as const
+const danceWins = (which: 0 | 1): [number, number][] => {
+  const t = st.tempo
+  const w: [number, number][] = []
+  for (let a = which * t; a < 2.3 - 0.05; a += 2 * t) w.push([a, Math.min(a + t, 2.3)])
+  return w
+}
 const TF = 4.4 // Claude has the order: "Gì nhiều việc vậy sếp", then thinking
 const TC = 3.8 // Claude hands a job over (teasing line + throws the letter)
 const TS = 5.6 // a worker's whole wake-up
@@ -1257,7 +1268,7 @@ const dynCss = (now: number): string => {
   if (st.phase === 'whip') {
     const e = E(st.whipAt)
     const k = (n: string, w: Wins) => o.push(kfw(n, w, TW))
-    k('kA', WW.A); k('kB', WW.B); k('kW1', WW.W1); k('kW2', WW.W2); k('kW3', WW.W3); k('kR', WW.R); k('kSay', WW.say)
+    k('kA', danceWins(0)); k('kB', danceWins(1)); k('kW1', WW.W1); k('kW2', WW.W2); k('kW3', WW.W3); k('kR', WW.R); k('kSay', WW.say)
     k('kCr', WW.crack); k('kR0', WW.ring0); k('kR1', WW.ring1); k('kR2', WW.ring2); k('kC0', WW.chat0); k('kC1', WW.chat1)
     k('kBang', WW.bang); k('kAsl', WW.asleep); k('kAwk', WW.awake); k('kTab', WW.tab)
     o.push(`@keyframes kJolt{0%{transform:translate(0,0)}${WW.jolt.map(([a, b]) => `${((a / TW) * 100).toFixed(2)}%{transform:translate(2px,-1px)}${(((a + b) / 2 / TW) * 100).toFixed(2)}%{transform:translate(-2px,1px)}${((b / TW) * 100).toFixed(2)}%{transform:translate(0,0)}`).join('')}100%{transform:translate(0,0)}}`)
@@ -1312,7 +1323,9 @@ const dynCss = (now: number): string => {
     if (st.rage.has(w)) {
       const e = E(st.rageAt[w] ?? now)
       const g = `.g-${w}`
-      o.push(`${g} .desk-${w}{animation:slam ${TG}s steps(1) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .lap{animation:yeet ${TG}s steps(14) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .jmp{animation:stomp .4s steps(4) ${(-e).toFixed(2)}s 6}`)
+      const [yx, yy, yr] = st.yeet[w] ?? [18, -16, 540]
+      o.push(`@keyframes yeet${w}{0%,18%{opacity:1;transform:translate(0,0) rotate(0deg)}70%{opacity:1;transform:translate(${yx}px,${yy}px) rotate(${yr}deg)}71%,100%{opacity:0;transform:translate(${yx}px,${yy}px)}}`)
+      o.push(`${g} .desk-${w}{animation:slam ${TG}s steps(1) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .lap{animation:yeet${w} ${TG}s steps(14) ${(-e).toFixed(2)}s forwards}`, `${g} .${w}-aw .jmp{animation:stomp .4s steps(4) ${(-e).toFixed(2)}s 6}`)
     }
   }
   // ----- Claude catches the thrown result with his head -----
@@ -1331,13 +1344,18 @@ const castCss = () =>
   CAST.map(c => {
     const sit = sitOf(c)
     const base = c.id === 'cl' ? '.lp' : `.a-${c.id}`
+    const ci = CAST.indexOf(c)
+    const typ = [0.3, 0.3, 0.22, 0.38][ci]!
     const out = [
+      `.${c.id}-sl .breath{animation-delay:-${(ci * 0.8).toFixed(1)}s}`,
+      `.${c.id}-sl .zz1{animation-delay:-${(ci * 0.9).toFixed(1)}s}.${c.id}-sl .zz2{animation-delay:-${(ci * 0.9 + 1.5).toFixed(1)}s}`,
       `@keyframes sit-${c.id}{to{transform:translateY(-${sit}px)}}`,
       `${base} .desk-${c.id}{opacity:1}`,
       `${base} .${c.id}-aw .chairb{opacity:1}`,
       `${base} .${c.id}-aw .sit{animation:sit-${c.id} .01s steps(1) forwards}`,
-      `${base} .${c.id}-aw .h1{animation:typ .3s steps(1) infinite}`,
-      `${base} .${c.id}-aw .h2{animation:typ .3s steps(1) infinite .15s}`,
+      `${base} .${c.id}-aw .h1{animation:typ ${typ}s steps(1) infinite}`,
+      `${base} .${c.id}-aw .h2{animation:typ ${typ}s steps(1) infinite ${(typ / 2).toFixed(2)}s}`,
+      `.t-${c.id} .${c.id}-aw .jmp{animation:stretch ${[0, 11, 8, 14][ci]!}s steps(1) infinite -${[0, 3, 6, 1][ci]!}s}`,
     ]
     if (c.id === 'cl') {
       out.push(`.lp .desk-cl{opacity:0;animation:popIn .3s steps(1) forwards}`, `.lp .cl-aw .chairb{opacity:0;animation:popIn .3s steps(1) forwards}`)
@@ -1383,6 +1401,9 @@ const sceneCss = () => `
 @keyframes wd{0%,100%{opacity:1}}
 @keyframes slam{0%{opacity:1;transform:translateY(0)}6%{transform:translateY(2px)}12%{transform:translateY(0)}18%{transform:translateY(2px)}24%{transform:translateY(0)}30%{transform:translateY(2px)}36%{transform:translateY(0)}58%{opacity:1}60%,100%{opacity:0}}
 @keyframes yeet{0%,18%{opacity:1;transform:translate(0,0) rotate(0deg)}70%{opacity:1;transform:translate(18px,-16px) rotate(540deg)}71%,100%{opacity:0;transform:translate(18px,-16px)}}
+@keyframes stretch{0%,86%{transform:translateY(0)}89%{transform:translateY(-3px)}92%{transform:translateY(-4px)}95%{transform:translateY(1px)}98%,100%{transform:translateY(0)}}
+@keyframes ssh{0%{opacity:0;transform:translate(0,0)}2%{opacity:1}9%{opacity:0;transform:translate(-30px,15px)}100%{opacity:0;transform:translate(-30px,15px)}}
+.ssh1{animation:ssh 19s linear infinite 4s}.ssh2{animation:ssh 29s linear infinite 13s}
 @keyframes stomp{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(0)}}
 @keyframes redf{0%{opacity:0}50%{opacity:.55}100%{opacity:0}}
 @keyframes steam{0%{opacity:0;transform:translateY(0)}25%{opacity:.9}100%{opacity:0;transform:translateY(-7px)}}
@@ -1417,6 +1438,8 @@ const st = {
   wShout: {} as Record<string, number>,
   chatT: 0,
   hTask: '',
+  tempo: 0.4,
+  yeet: {} as Record<string, [number, number, number]>,
   live: {} as Record<string, string>,
   liveAt: {} as Record<string, number>,
   plan: '',
@@ -1443,7 +1466,7 @@ const sceneClasses = () =>
     st.send.size > 0 ? 'say' : '',
     st.recv.size > 0 ? 'rcv' : '',
     claudeBusy() ? 'tb' : st.phase === 'work' ? 'lp' : '',
-    st.phase === 'work' && !st.fresh && st.send.size === 0 ? 'th' : '',
+    st.phase === 'work' && !st.fresh && st.send.size === 0 && liveText('cl') !== '' ? 'th' : '',
     ...[...st.awake, ...st.recv, ...st.rage].map(w => `a-${w}`),
     ...[...st.awake].filter(w => !st.send.has(w) && !st.recv.has(w) && !st.rage.has(w)).map(w => `t-${w}`),
     ...[...st.rage].map(w => `g-${w}`),
@@ -1472,7 +1495,7 @@ const leftDynamic = () => {
   let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
   if (st.phase === 'whip') o += whipExtras() + heroSay()
   if (st.fresh) o += csayMarkup()
-  if (st.phase === 'work' && st.send.size === 0) o += thinkCl()
+  if (st.phase === 'work' && st.send.size === 0 && liveText('cl') !== '') o += thinkCl()
   if (st.send.size > 0) o += claudeSay()
   return o
 }
@@ -1504,6 +1527,7 @@ ${dynCss(now)}
 <rect y="40" width="160" height="50" fill="#1f2340"/>
 <rect y="62" width="160" height="28" fill="#262b4d"/>
 ${decor ? stars : ''}
+${decor ? `<g class="ssh ssh1" opacity="0"><path fill="#ffffff" d="M120 8h2v1h-2zM122 9h2v1h-2zM124 10h2v1h-2z"/></g><g class="ssh ssh2" opacity="0"><path fill="#cfd4ff" d="M70 20h2v1h-2zM72 21h2v1h-2zM74 22h2v1h-2z"/></g>` : ''}
 ${decor ? `<g class="c1" style="animation-delay:${d(90)}">${cloud(0, 14, '#2f3560')}</g><g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>` : ''}
 <g class="Mn"><rect x="96" y="10" width="8" height="8" fill="#ffcd75"/><rect x="98" y="8" width="4" height="12" fill="#ffcd75"/><rect x="94" y="12" width="12" height="4" fill="#ffcd75"/></g>
 <g class="Gr">${GROUND.back.svg(0, FLOOR - 2)}</g>
@@ -1567,6 +1591,7 @@ const startWhip = () => {
   const gen = ++st.gen
   mainBusy = true
   st.hSay = firstLine ? 0 : pickNot(HERO_SAY, st.hSay)
+  st.tempo = [0.2, 0.25, 0.3, 0.4][Math.floor(Math.random() * 4)]!
   st.cRecv = pickNot(CLAUDE_RECV_POOL, st.cRecv)
   st.chatT = Math.floor(Math.random() * CHAT_POOL.length)
   firstLine = false
@@ -1627,15 +1652,18 @@ const finishAll = () => {
 }
 
 // which AI takes a job: named in the text, else the least busy one
-const pickWorker = (text: string): string => {
+const hintOf = (text: string): string | undefined => {
   if (/deepseek/i.test(text)) return 'ds'
-  if (/chatgpt|openai|\bgpt\b/i.test(text)) return 'gp'
+  if (/chatgpt|openai|\bgpt\b/i.test(text) && !/codex/i.test(text)) return 'gp'
   if (/codex/i.test(text)) return 'cx'
-  return [...WORKERS].sort((a, b) => (load[a] ?? 0) - (load[b] ?? 0))[0]!
+  return undefined
 }
+const agentHints: string[] = [] // who each Agent/Task call is meant for, in the order the subagents start
+const pickWorker = (text: string): string => hintOf(text) ?? [...WORKERS].sort((a, b) => (load[a] ?? 0) - (load[b] ?? 0))[0]!
 
 // the AI throws its result back at Claude's head, then slams the desk and goes to bed
 const beginReturn = (w: string) => {
+  st.yeet[w] = [[18, -16, 540], [-16, -20, -540], [4, -26, 720], [26, -8, 360], [-24, -12, -360]][Math.floor(Math.random() * 5)] as [number, number, number]
   st.awake.delete(w)
   st.recv.add(w)
   st.recvAt[w] = Date.now()
@@ -1805,7 +1833,8 @@ export const register: Register = (on, options) => {
         startWhip()
       }
     } else if (!agentWorker.has(e.agentId)) {
-      const w = pickWorker(e.text)
+      const hint = agentHints.shift()
+      const w = hintOf(e.text) ?? (hint !== undefined && hint !== '' ? hint : pickWorker(''))
       agentWorker.set(e.agentId, w)
       startWork(w, e.text)
     }
@@ -1881,6 +1910,21 @@ export const register: Register = (on, options) => {
       void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
     }
     const args = e as unknown as { tool: string; command?: string; description?: string; run_in_background?: boolean }
+    if (args.tool === 'Agent' || args.tool === 'Task') {
+      agentHints.push(hintOf(JSON.stringify(e).slice(0, 4000)) ?? '')
+      if (agentHints.length > 8) agentHints.shift()
+      return next(e)
+    }
+    if (args.tool.startsWith('mcp__')) {
+      const w = hintOf(args.tool)
+      if (w === undefined) return next(e)
+      startWork(w, args.description ?? '')
+      try {
+        return await next(e)
+      } finally {
+        endWork(w)
+      }
+    }
     if (args.tool !== 'Bash') {
       return next(e)
     }
