@@ -741,6 +741,8 @@ const speech = (text: string, tailLeft: boolean, atX: (w: number) => number, bot
 // a short, drawable summary of some text (a prompt, a task): the first few words
 const brief = (text: string, maxWords: number, maxChars: number): string => {
   const clean = text
+    .replace(/<([A-Za-z][\w-]*)[^>]*>[\s\S]*?<\/\1>/g, ' ')
+    .replace(/<\/?[A-Za-z][^>]*>/g, ' ')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/https?:\/\/\S+/g, ' ')
     .replace(/[`*_#>\[\]()"'{}|\\/]/g, ' ')
@@ -764,6 +766,42 @@ const fit3 = (text: string): string => {
   return ws.join(' ')
 }
 const joinSay = (head: string, tail: string): string => (tail === '' ? head : fit3(`${head} ${tail}`.trim()) === head.split(' ').slice(0, 10).join(' ') ? head : fit3(`${head} ${tail}`))
+// the newest few words of a stream of thoughts, as a short line that fits a bubble
+const tailWords = (text: string): string => {
+  const clean = text
+    .replace(/<([A-Za-z][\w-]*)[^>]*>[\s\S]*?<\/\1>/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[`*_#>\[\]()"'{}|\\/<]/g, ' ')
+    .normalize('NFC')
+  const words = clean.split(/\s+/).map(w => [...w].filter(ch => VF[ch] !== undefined).join('').slice(0, 11)).filter(w => w !== '')
+  const out: string[] = []
+  for (let i = words.length - 1; i >= 0 && out.length < 9; i--) {
+    out.unshift(words[i]!)
+    if (wrapText(out.join(' '), 11).length > 3) {
+      out.shift()
+      break
+    }
+  }
+  if (out.length === 0) return ''
+  const lead = out.length < words.length ? '.. ' : ''
+  while (out.length > 1 && wrapText(lead + out.join(' '), 11).length > 3) out.shift()
+  return lead + out.join(' ')
+}
+const LIVE_TTL = 7000
+// neighbouring AIs sit closer together than a bubble is wide, so only the one that spoke last shows its thoughts
+const focusWorker = (): string => {
+  let best = ''
+  let t = -1
+  for (const w of st.awake) {
+    const v = Math.max(st.liveAt[w] ?? 0, st.sendAt[w] ?? 0)
+    if (v > t) {
+      t = v
+      best = w
+    }
+  }
+  return best
+}
+const liveText = (key: string): string => ((st.liveAt[key] ?? 0) + LIVE_TTL > Date.now() ? st.live[key] ?? '' : '')
 const staticWords = (markup: string) => markup.replace(/class="wd w\d+"/g, 'class="wk"')
 const WORKER_NAME: Record<string, string> = { cx: 'Codex', ds: 'DeepSeek', gp: 'ChatGPT' }
 const HAND_OPEN = ["ê", "nè", "này", "ơi", "cu ơi", "bồ ơi"]
@@ -1106,7 +1144,7 @@ const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) =
 <g class="hit hit-${c.id}">${hit}</g><g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1"><path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
 ${
   worker
-    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g><g class="think think-${c.id}">${staticWords(speech(st.wTask[c.id] ? fit3(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`) : 'đang suy nghĩ...', true, bubX, bubTop))}</g><g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
+    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g>${focusWorker() === c.id ? `<g class="think think-${c.id}">${staticWords(speech(liveText(c.id) !== '' ? liveText(c.id) : st.wTask[c.id] ? fit3(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`) : 'đang suy nghĩ...', true, bubX, bubTop))}</g>` : ''}<g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
     : `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>`
 }
 </g>
@@ -1150,7 +1188,7 @@ ${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPt
 <g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 36}h2v6h-2zM${CSX + 16} ${GH - 28}h2v2h-2z"/></g>`
   return whipCache.v
 }
-const thinkCl = () => `<g class="think think-cl">${staticWords(speech(st.plan !== '' ? fit3(`nghĩ: ${st.plan}`) : 'đang nghĩ...', false, w => LW - w, HY + 1))}</g>`
+const thinkCl = () => `<g class="think think-cl">${staticWords(speech(liveText('cl') !== '' ? liveText('cl') : st.plan !== '' ? fit3(`nghĩ: ${st.plan}`) : 'đang nghĩ...', false, w => LW - w, HY + 1))}</g>`
 const csayMarkup = () => `<g class="csay">${speech(CLAUDE_RECV_POOL[st.cRecv % CLAUDE_RECV_POOL.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const rightStatic = () => CAST.slice(1).map((c, i) => slotSleep(c, GH, i * 30)).join('\n')
@@ -1353,6 +1391,7 @@ const sceneCss = () => `
 @keyframes zz{0%{opacity:0;transform:translate(0,3px)}25%{opacity:1;transform:translate(0,1px)}75%{opacity:1;transform:translate(2px,-3px)}100%{opacity:0;transform:translate(2px,-5px)}}
 .tb .tab{opacity:1}
 .th .think-cl{opacity:1}
+.t-cx .think-cx,.t-ds .think-ds,.t-gp .think-gp{opacity:1}
 .say .tshake{animation:shake .2s steps(1) infinite}
 .ping{animation:blink .6s steps(2) infinite}
 .ph-whip .cl-aw .dz{opacity:1}
@@ -1378,6 +1417,8 @@ const st = {
   wShout: {} as Record<string, number>,
   chatT: 0,
   hTask: '',
+  live: {} as Record<string, string>,
+  liveAt: {} as Record<string, number>,
   plan: '',
   cLine: '',
   wTask: {} as Record<string, string>,
@@ -1402,8 +1443,9 @@ const sceneClasses = () =>
     st.send.size > 0 ? 'say' : '',
     st.recv.size > 0 ? 'rcv' : '',
     claudeBusy() ? 'tb' : st.phase === 'work' ? 'lp' : '',
-    st.phase === 'work' && !st.fresh && st.awake.size + st.send.size === 0 ? 'th' : '',
+    st.phase === 'work' && !st.fresh && st.send.size === 0 ? 'th' : '',
     ...[...st.awake, ...st.recv, ...st.rage].map(w => `a-${w}`),
+    ...[...st.awake].filter(w => !st.send.has(w) && !st.recv.has(w) && !st.rage.has(w)).map(w => `t-${w}`),
     ...[...st.rage].map(w => `g-${w}`),
     ...[...st.send].map(w => `s-${w}`),
     ...[...st.recv].map(w => `r-${w}`),
@@ -1768,6 +1810,46 @@ export const register: Register = (on, options) => {
       startWork(w, e.text)
     }
     return next(e)
+  })
+
+  // Watch the model think and write, live: the newest words show in the speech bubble of whoever it is
+  // (Claude for the main loop, the AI looking after a subagent). Chunks pass through untouched.
+  const flushing = new Set<string>()
+  on('turn.step', async function* ($, e, next) {
+    poke = () => $.ui.invalidate('ui.render')
+    later = (ms, fn) => {
+      void $.clock.after(ms, fn)
+    }
+    const key = e.agentId === undefined ? 'cl' : agentWorker.get(e.agentId) ?? ''
+    let buf = ''
+    const show = () => {
+      flushing.delete(key)
+      const t = tailWords(buf)
+      if (t === '') return
+      st.live[key] = t
+      st.liveAt[key] = Date.now()
+      poke()
+      later(LIVE_TTL + 200, () => poke())
+    }
+    for await (const c of next(e)) {
+      if (key !== '') {
+        try {
+          const piece = c.kind === 'thinking' || c.kind === 'text' ? c.text : c.kind === 'tool' ? ` ${c.name} ` : ''
+          if (piece !== '') {
+            buf = (buf + piece).slice(-400)
+            const since = Date.now() - (st.liveAt[key] ?? 0)
+            if (since >= 1300) show()
+            else if (!flushing.has(key)) {
+              flushing.add(key)
+              later(1300 - since, show)
+            }
+          }
+        } catch {
+          // never let a drawing problem touch the model's stream
+        }
+      }
+      yield c
+    }
   })
 
   on('turn.complete', ($, e, next) => {
