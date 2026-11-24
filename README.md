@@ -38,3 +38,11 @@ To update later: `/plugin update pixel-claude@pixel-claude-marketplace`.
 - **Done**: the results fly back, desks get slammed, laptops are thrown in a random direction, everybody goes back to bed. The sky glows with dawn, confetti falls, the hero praises the team and a gold star is added at the top-left for every finished request.
 - **While idle**: now and then someone talks in their sleep.
 - Shooting stars, per-AI typing speed and stretching, desynchronised snoring.
+
+## More life (0.5)
+
+- **Fireworks** burst over the scene when a request finishes.
+- **Storm**: when two or more AIs work at once it rains, with lightning flashes.
+- **Fireflies** drift over the grass while everything is quiet; a small UFO crosses the sky now and then.
+- **Dawn and dusk** tint the sky according to your local clock.
+- **Oops**: when a tool call fails, a red "!?" and sweat drops pop up over whoever ran it.

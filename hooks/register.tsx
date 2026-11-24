@@ -1418,6 +1418,20 @@ const sceneCss = () => `
 .cfp{transform-box:fill-box;transform-origin:center;animation:cfall 2.8s linear infinite}
 @keyframes cfall{0%{opacity:0;transform:translateY(0) rotate(0deg)}10%{opacity:1}90%{opacity:1}100%{opacity:0;transform:translateY(70px) rotate(300deg)}}
 .zbub{animation:popIn .4s steps(1) 1 both}
+@keyframes fwb{0%{opacity:0;transform:scale(.15)}12%{opacity:1}70%{opacity:1}100%{opacity:0;transform:scale(2.4)}}
+.fw{transform-box:fill-box;transform-origin:center;animation:fwb 1.7s steps(9) infinite}
+.rain rect{animation:rainf .8s linear infinite}
+@keyframes rainf{0%{opacity:0;transform:translate(0,0)}10%{opacity:.7}100%{opacity:0;transform:translate(-8px,72px)}}
+.lit{animation:litf 6.5s steps(1) infinite}
+@keyframes litf{0%,88%{opacity:0}89%{opacity:.5}90%{opacity:0}91%{opacity:.35}92%,100%{opacity:0}}
+.ff{animation:fff 5s ease-in-out infinite}
+@keyframes fff{0%,100%{opacity:.1;transform:translate(0,0)}50%{opacity:1;transform:translate(5px,-4px)}}
+.ufo{transform:translate(-10px,14px);animation:ufof 53s linear infinite 6s}
+@keyframes ufof{0%{transform:translate(-10px,14px)}9%{transform:translate(80px,22px)}12%{transform:translate(80px,22px)}22%{transform:translate(172px,12px)}100%{transform:translate(172px,12px)}}
+.beam{animation:beamf 53s steps(1) infinite 6s;opacity:0}
+@keyframes beamf{0%,9%{opacity:0}9.5%,11.5%{opacity:.55}12%,100%{opacity:0}}
+.oops{animation:oopf .5s steps(2) infinite}
+@keyframes oopf{0%{opacity:1}50%{opacity:.4}}
 @keyframes stomp{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(0)}}
 @keyframes redf{0%{opacity:0}50%{opacity:.55}100%{opacity:0}}
 @keyframes steam{0%{opacity:0;transform:translateY(0)}25%{opacity:.9}100%{opacity:0;transform:translateY(-7px)}}
@@ -1452,6 +1466,7 @@ const st = {
   wShout: {} as Record<string, number>,
   chatT: 0,
   hTask: '',
+  oops: null as null | { who: string; at: number },
   chat: null as null | { who: string; text: string; at: number },
   wins: 0,
   praise: 0,
@@ -1516,6 +1531,7 @@ const leftDynamic = () => {
   if (st.phase === 'idle') return chatBubble('hero') + chatBubble('cl')
   let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
   if (st.phase === 'whip') o += whipExtras() + heroSay()
+  if (st.oops !== null && st.oops.who === 'cl') o += `<g transform="translate(${CSX + 14} ${GH - 56})">${oopsMarkup('cl')}</g>`
   if (st.phase === 'done') o += `<g class="zbub">${staticWords(speech(PRAISE[st.praise % PRAISE.length]!, true, () => 0, HY + 1, TS_SCALE))}</g>`
   if (st.fresh) o += csayMarkup()
   if (st.phase === 'work' && st.send.size === 0 && liveText('cl') !== '') o += thinkCl()
@@ -1525,7 +1541,7 @@ const leftDynamic = () => {
 const rightDynamic = () =>
   CAST.slice(1)
     .map((c, i) => {
-      if (active(c.id)) return slotAwake(c, GH, i * 30 + 4, i * 30, RW)
+      if (active(c.id)) return slotAwake(c, GH, i * 30 + 4, i * 30, RW) + (st.oops !== null && st.oops.who === c.id ? `<g transform="translate(${i * 30 + 14} ${GH - 56})">${oopsMarkup(c.id)}</g>` : '')
       const z = st.phase === 'idle' && st.chat !== null && st.chat.who === c.id
       return z ? `<g class="zbub">${staticWords(speech(st.chat!.text, true, w => Math.max(0, Math.min(RW - w, i * 30 + 15 - Math.round(w / 2))), GH - 46, TS_SCALE))}</g>` : ''
     })
@@ -1535,6 +1551,35 @@ const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" hei
 <g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_STATIC}${rightDynamic()}</svg></g>
 <g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
 
+const FW = [[38, 22, '#ffd45e'], [118, 16, '#ff7aa2'], [80, 34, '#7fe3ff']] as const
+const ambient = (now: number): string => {
+  let o = ''
+  const h = new Date(now).getHours()
+  if (h >= 5 && h < 7) o += '<rect width="160" height="62" fill="#ff8f70" opacity=".14"/>'
+  if (h >= 17 && h < 20) o += '<rect width="160" height="62" fill="#ff9a3c" opacity=".16"/>'
+  if (st.phase === 'done') {
+    o += FW.map(([x, y, col], i) => `<g class="fw" fill="${col}" style="animation-delay:-${(i * 0.55).toFixed(2)}s">${[0, 1, 2, 3, 4, 5, 6, 7].map(a => `<rect x="${Math.round(x + 7 * Math.cos((a * Math.PI) / 4)) - 1}" y="${Math.round(y + 7 * Math.sin((a * Math.PI) / 4)) - 1}" width="2" height="2"/>`).join('')}<rect x="${x - 1}" y="${y - 1}" width="2" height="2"/></g>`).join('')
+  }
+  if (st.phase === 'work' && st.awake.size >= 2) {
+    o += '<rect class="lit" width="160" height="62" fill="#e8ecff" opacity="0"/><g class="rain" fill="#9fb4ff">'
+    for (let i = 0; i < 22; i++) o += `<rect style="animation-delay:-${((i * 0.13) % 0.9).toFixed(2)}s" x="${(i * 19 + 7) % 160}" y="0" width="1" height="3"/>`
+    o += '</g>'
+  }
+  if (st.phase === 'idle') {
+    o += '<g class="ffs" fill="#d6ff7a">'
+    for (let i = 0; i < 7; i++) o += `<rect class="ff" style="animation-duration:${4 + (i % 3)}s;animation-delay:-${i * 0.9}s" x="${12 + i * 21}" y="${58 + ((i * 7) % 10)}" width="1.5" height="1.5"/>`
+    o += '</g>'
+  }
+  if (st.phase === 'idle' || st.phase === 'work') {
+    o += '<g class="ufo"><path fill="#9ad0e8" d="M-5 1h10v1h-10zM-3 0h6v1h-6zM-2 -1h4v1h-4z"/><path class="beam" fill="#ffe97a" d="M-2 2h4l3 14h-10z"/></g>'
+  }
+  return o
+}
+const oopsMarkup = (who: string): string => {
+  const o = st.oops
+  if (o === null || o.who !== who || Date.now() - o.at > 1600) return ''
+  return '<g class="oops"><path fill="#ff4d4d" d="M0 0h2v5h-2zM0 6h2v2h-2zM4 1h2v2h-2zM6 3h2v2h-2zM4 5h2v1h-2z"/><path fill="#8fd8ff" d="M-3 4h1v2h-1zM9 7h1v2h-1z"/></g>'
+}
 const CONF = `<g class="conf">${Array.from({ length: 16 }, (_, i) => {
   const x = 6 + ((i * 37) % 148)
   const col = ['#ffd45e', '#ff7aa2', '#7fe3ff', '#8fe3ac'][i % 4]
@@ -1563,6 +1608,7 @@ ${dynCss(now)}
 <rect class="dawn" width="160" height="62" fill="#ff9d5c" opacity="0"/>
 ${decor ? stars : ''}
 ${CONF}
+${decor ? ambient(now) : ''}
 ${decor ? `<g class="ssh ssh1" opacity="0"><path fill="#ffffff" d="M120 8h2v1h-2zM122 9h2v1h-2zM124 10h2v1h-2z"/></g><g class="ssh ssh2" opacity="0"><path fill="#cfd4ff" d="M70 20h2v1h-2zM72 21h2v1h-2zM74 22h2v1h-2z"/></g>` : ''}
 ${decor ? `<g class="c1" style="animation-delay:${d(90)}">${cloud(0, 14, '#2f3560')}</g><g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>` : ''}
 <g class="Mn"><rect x="96" y="10" width="8" height="8" fill="#ffcd75"/><rect x="98" y="8" width="4" height="12" fill="#ffcd75"/><rect x="94" y="12" width="12" height="4" fill="#ffcd75"/></g>
@@ -1975,6 +2021,17 @@ export const register: Register = (on, options) => {
       void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
     }
     const args = e as unknown as { tool: string; command?: string; description?: string; run_in_background?: boolean }
+    const failed = (who: string): void => {
+      st.oops = { who, at: Date.now() }
+      poke()
+      later(1700, () => poke())
+    }
+    const watch = async (): Promise<ReturnType<typeof next>> => {
+      const r = await next(e)
+      const who = (e as unknown as { agentId?: string }).agentId
+      if ((r as { isError?: boolean }).isError === true && st.phase === 'work') failed(who === undefined ? 'cl' : agentWorker.get(who) ?? 'cl')
+      return r
+    }
     if (args.tool === 'Agent' || args.tool === 'Task') {
       agentHints.push(hintOf(JSON.stringify(e).slice(0, 4000)) ?? '')
       if (agentHints.length > 8) agentHints.shift()
@@ -1991,7 +2048,7 @@ export const register: Register = (on, options) => {
       }
     }
     if (args.tool !== 'Bash') {
-      return next(e)
+      return watch()
     }
     const named = bashWorker(args)
     if (args.run_in_background === true) {
