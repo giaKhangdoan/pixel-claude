@@ -811,6 +811,14 @@ const staticWords = (markup: string) => markup.replace(/class="wd w\d+"/g, 'clas
 const WORKER_NAME: Record<string, string> = { cx: 'Codex', ds: 'DeepSeek', gp: 'ChatGPT' }
 const HAND_OPEN = ["ê", "nè", "này", "ơi", "cu ơi", "bồ ơi"]
 const HAND_TAIL = ["làm giúp nha:", "lo vụ này:", "nhận việc:", "xử lý:", "cày vụ:"]
+const DREAMS: Record<string, string[]> = {
+  cl: ["zzz... 5 phút nữa thôi...", "mơ thấy hết bug rồi...", "đừng gọi em, sếp...", "token ơi đừng hết...", "em chưa commit mà..."],
+  cx: ["mơ thấy code sạch...", "git push... zzz", "đừng merge vội...", "build xanh hết rồi..."],
+  ds: ["vòi nước đâu rồi...", "mơ bơi trong dữ liệu...", "bơi... bơi... zzz", "phun nước lên mây..."],
+  gp: ["xin lỗi, tôi là AI...", "để tui nghĩ thêm xíu...", "mơ được tăng lương...", "prompt dài quá..."],
+  hero: ["chán quá, ai làm gì đi...", "roi ngứa tay rồi nè...", "tụi này ngủ hoài vậy...", "uống ngụm cà phê cái...", "hôm nay êm ghê..."],
+}
+const PRAISE = ["giỏi lắm, tụi bây!", "xong sớm, thưởng nè!", "tạm được đó nha!", "hôm nay cày ngon!", "nghỉ được rồi đó!", "làm tốt, mai tiếp nha!"]
 const THINK_VERB = ["đang làm:", "xử lý:", "để tui lo:", "ok, làm:", "tui làm:"]
 
 const SPARK = new Cv(5, 5)
@@ -1404,6 +1412,12 @@ const sceneCss = () => `
 @keyframes stretch{0%,86%{transform:translateY(0)}89%{transform:translateY(-3px)}92%{transform:translateY(-4px)}95%{transform:translateY(1px)}98%,100%{transform:translateY(0)}}
 @keyframes ssh{0%{opacity:0;transform:translate(0,0)}2%{opacity:1}9%{opacity:0;transform:translate(-30px,15px)}100%{opacity:0;transform:translate(-30px,15px)}}
 .ssh1{animation:ssh 19s linear infinite 4s}.ssh2{animation:ssh 29s linear infinite 13s}
+@keyframes dawn{0%{opacity:0}30%{opacity:.24}100%{opacity:0}}
+.ph-done .dawn{animation:dawn 3.5s linear forwards}
+.conf{opacity:0}.ph-done .conf{opacity:1}
+.cfp{transform-box:fill-box;transform-origin:center;animation:cfall 2.8s linear infinite}
+@keyframes cfall{0%{opacity:0;transform:translateY(0) rotate(0deg)}10%{opacity:1}90%{opacity:1}100%{opacity:0;transform:translateY(70px) rotate(300deg)}}
+.zbub{animation:popIn .4s steps(1) 1 both}
 @keyframes stomp{0%{transform:translateY(0)}50%{transform:translateY(-2px)}100%{transform:translateY(0)}}
 @keyframes redf{0%{opacity:0}50%{opacity:.55}100%{opacity:0}}
 @keyframes steam{0%{opacity:0;transform:translateY(0)}25%{opacity:.9}100%{opacity:0;transform:translateY(-7px)}}
@@ -1438,6 +1452,9 @@ const st = {
   wShout: {} as Record<string, number>,
   chatT: 0,
   hTask: '',
+  chat: null as null | { who: string; text: string; at: number },
+  wins: 0,
+  praise: 0,
   tempo: 0.4,
   yeet: {} as Record<string, [number, number, number]>,
   live: {} as Record<string, string>,
@@ -1490,10 +1507,16 @@ const heroSay = () => `<g class="hsay">${speech(joinSay(HERO_SAY[st.hSay % HERO_
 const claudeSay = () => `<g class="say-b">${speech(st.cLine !== '' ? st.cLine : CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const active = (w: string) => st.awake.has(w) || st.send.has(w) || st.recv.has(w) || st.rage.has(w)
+const chatBubble = (who: string) => {
+  const c = st.chat
+  if (c === null || c.who !== who) return ''
+  return `<g class="zbub">${staticWords(speech(c.text, who === 'hero', who === 'hero' ? () => 0 : w => LW - w, HY + 1, TS_SCALE))}</g>`
+}
 const leftDynamic = () => {
-  if (st.phase === 'idle') return ''
+  if (st.phase === 'idle') return chatBubble('hero') + chatBubble('cl')
   let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
   if (st.phase === 'whip') o += whipExtras() + heroSay()
+  if (st.phase === 'done') o += `<g class="zbub">${staticWords(speech(PRAISE[st.praise % PRAISE.length]!, true, () => 0, HY + 1, TS_SCALE))}</g>`
   if (st.fresh) o += csayMarkup()
   if (st.phase === 'work' && st.send.size === 0 && liveText('cl') !== '') o += thinkCl()
   if (st.send.size > 0) o += claudeSay()
@@ -1501,13 +1524,24 @@ const leftDynamic = () => {
 }
 const rightDynamic = () =>
   CAST.slice(1)
-    .map((c, i) => (active(c.id) ? slotAwake(c, GH, i * 30 + 4, i * 30, RW) : ''))
+    .map((c, i) => {
+      if (active(c.id)) return slotAwake(c, GH, i * 30 + 4, i * 30, RW)
+      const z = st.phase === 'idle' && st.chat !== null && st.chat.who === c.id
+      return z ? `<g class="zbub">${staticWords(speech(st.chat!.text, true, w => Math.max(0, Math.min(RW - w, i * 30 + 15 - Math.round(w / 2))), GH - 46, TS_SCALE))}</g>` : ''
+    })
     .join('\n')
 
 const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_STATIC}${leftDynamic()}</svg></g>
 <g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_STATIC}${rightDynamic()}</svg></g>
 <g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
 
+const CONF = `<g class="conf">${Array.from({ length: 16 }, (_, i) => {
+  const x = 6 + ((i * 37) % 148)
+  const col = ['#ffd45e', '#ff7aa2', '#7fe3ff', '#8fe3ac'][i % 4]
+  return `<rect class="cfp" style="animation-delay:-${((i * 0.41) % 2.8).toFixed(2)}s" x="${x}" y="0" width="2" height="2" fill="${col}"/>`
+}).join('')}</g>`
+const winsMarkup = () =>
+  st.wins === 0 ? '' : `<g>${Array.from({ length: st.wins }, (_, i) => `<path fill="#ffd45e" d="M${4 + i * 5} 3h1v1h-1zM${3 + i * 5} 4h3v1h-3zM${4 + i * 5} 5h1v1h-1z"/>`).join('')}</g>`
 const buildSceneWith = (now: number, decor: boolean) => {
   const d = (period: number) => `-${(now / 1000) % period}s`
   return `<svg xmlns="http://www.w3.org/2000/svg" class="${sceneClasses()}" viewBox="0 0 160 90" preserveAspectRatio="xMidYMax slice" shape-rendering="crispEdges">
@@ -1526,12 +1560,15 @@ ${dynCss(now)}
 <rect width="160" height="90" fill="#1a1c2c"/>
 <rect y="40" width="160" height="50" fill="#1f2340"/>
 <rect y="62" width="160" height="28" fill="#262b4d"/>
+<rect class="dawn" width="160" height="62" fill="#ff9d5c" opacity="0"/>
 ${decor ? stars : ''}
+${CONF}
 ${decor ? `<g class="ssh ssh1" opacity="0"><path fill="#ffffff" d="M120 8h2v1h-2zM122 9h2v1h-2zM124 10h2v1h-2z"/></g><g class="ssh ssh2" opacity="0"><path fill="#cfd4ff" d="M70 20h2v1h-2zM72 21h2v1h-2zM74 22h2v1h-2z"/></g>` : ''}
 ${decor ? `<g class="c1" style="animation-delay:${d(90)}">${cloud(0, 14, '#2f3560')}</g><g class="c2" style="animation-delay:${d(140)}">${cloud(0, 30, '#2a3058')}</g>` : ''}
 <g class="Mn"><rect x="96" y="10" width="8" height="8" fill="#ffcd75"/><rect x="98" y="8" width="4" height="12" fill="#ffcd75"/><rect x="94" y="12" width="12" height="4" fill="#ffcd75"/></g>
 <g class="Gr">${GROUND.back.svg(0, FLOOR - 2)}</g>
 ${sceneStatic()}
+${winsMarkup()}
 </svg>`
 }
 
@@ -1589,6 +1626,7 @@ const ms = (s: number) => Math.round(s * 1000)
 let firstLine = true
 const startWhip = () => {
   const gen = ++st.gen
+  st.chat = null
   mainBusy = true
   st.hSay = firstLine ? 0 : pickNot(HERO_SAY, st.hSay)
   st.tempo = [0.2, 0.25, 0.3, 0.4][Math.floor(Math.random() * 4)]!
@@ -1635,8 +1673,34 @@ const settle = () => {
   }
 }
 
+// while nothing is going on, somebody mutters in their sleep every now and then
+let chatterOn = false
+const startChatter = () => {
+  if (chatterOn) return
+  chatterOn = true
+  const tick = () => {
+    if (st.phase === 'idle' && !mainBusy && st.chat === null) {
+      const who = (['hero', 'cl', 'cx', 'ds', 'gp'] as const)[Math.floor(Math.random() * 5)]!
+      const pool = DREAMS[who]!
+      const at = Date.now()
+      st.chat = { who, text: pool[Math.floor(Math.random() * pool.length)]!, at }
+      poke()
+      later(4500, () => {
+        if (st.chat !== null && st.chat.at === at) {
+          st.chat = null
+          poke()
+        }
+      })
+    }
+    later(14000 + Math.floor(Math.random() * 18000), tick)
+  }
+  later(9000, tick)
+}
+
 const finishAll = () => {
   const gen = ++st.gen
+  st.wins = Math.min(st.wins + 1, 12)
+  st.praise = Math.floor(Math.random() * PRAISE.length)
   mainBusy = false
   st.fresh = false
   st.phase = 'done'
@@ -1789,6 +1853,7 @@ export const register: Register = (on, options) => {
     sfx = n => {
       void $.audio.play({ asset: n === 'slam' ? 'sounds/slam.wav' : n === 'crash' ? 'sounds/crash.wav' : 'sounds/crack.wav' }).catch(() => {})
     }
+    startChatter()
     const bad = problems.find(line => line.startsWith("Desktop won't paint"))
     if (bad !== undefined) {
       $.ui.toast(bad)

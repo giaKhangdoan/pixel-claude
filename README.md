@@ -29,3 +29,12 @@ To update later: `/plugin update pixel-claude@pixel-claude-marketplace`.
 - `sounds/` holds three small synthetic sound effects (desk slam, laptop crash, whip crack). They play only
   where Claude Code itself runs on macOS; the theme's own sound cues work in the desktop app.
 - `hooks/make-colors.js` is the colour helper that ships with the Claude Code mod tooling.
+
+## What lives in the scene (0.4)
+
+- **Whip wake-up**: send a prompt and the hero dances (random tempo), says a teasing line plus a short summary of your prompt, and cracks the whip twice.
+- **Task letters**: Claude hands jobs to Codex, DeepSeek and ChatGPT by throwing a letter on their heads; they power up, read it and work. The right AI is picked from the Agent/Task call or command.
+- **Live thoughts**: the newest words of what Claude (and each subagent) is thinking appear in small speech bubbles.
+- **Done**: the results fly back, desks get slammed, laptops are thrown in a random direction, everybody goes back to bed. The sky glows with dawn, confetti falls, the hero praises the team and a gold star is added at the top-left for every finished request.
+- **While idle**: now and then someone talks in their sleep.
+- Shooting stars, per-AI typing speed and stretching, desynchronised snoring.
