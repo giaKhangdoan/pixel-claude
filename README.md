@@ -46,3 +46,17 @@ To update later: `/plugin update pixel-claude@pixel-claude-marketplace`.
 - **Fireflies** drift over the grass while everything is quiet; a small UFO crosses the sky now and then.
 - **Dawn and dusk** tint the sky according to your local clock.
 - **Oops**: when a tool call fails, a red "!?" and sweat drops pop up over whoever ran it.
+
+## Who shows up (0.6)
+
+A different chibi turns up for each prompt, picked from what it is about (the classic whip-wielder is also in the mix):
+
+| Prompt about | Who | Weapon | Hits go |
+| --- | --- | --- | --- |
+| bug, lỗi, fix, crash | mechanic in a hard hat | wrench | keng! boong! |
+| explain, docs, viết, dịch | teacher with glasses | ruler | bốp! cạch! |
+| refactor, dọn, tối ưu | chef | frying pan | xoảng! |
+| deploy, gấp, security, build | ranger in a red cap | ray gun with a laser beam | pằng! píu! |
+| UI, design, css, màu | artist in a beret | paintbrush | xẹt! bẹt! |
+
+Each has their own outfit and lines on top of the usual teasing ones.

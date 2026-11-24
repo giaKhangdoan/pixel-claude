@@ -780,16 +780,16 @@ const tailWords = (text: string): string => {
     .normalize('NFC')
   const words = clean.split(/\s+/).map(w => [...w].filter(ch => VF[ch] !== undefined).join('').slice(0, 11)).filter(w => w !== '')
   const out: string[] = []
-  for (let i = words.length - 1; i >= 0 && out.length < 16; i--) {
+  for (let i = words.length - 1; i >= 0 && out.length < 12; i--) {
     out.unshift(words[i]!)
-    if (wrapText(out.join(' '), TS_W).length > 5) {
+    if (wrapText(out.join(' '), TS_W).length > 4) {
       out.shift()
       break
     }
   }
   if (out.length === 0) return ''
   const lead = out.length < words.length ? '.. ' : ''
-  while (out.length > 1 && wrapText(lead + out.join(' '), TS_W).length > 5) out.shift()
+  while (out.length > 1 && wrapText(lead + out.join(' '), TS_W).length > 4) out.shift()
   return lead + out.join(' ')
 }
 const LIVE_TTL = 7000
@@ -806,7 +806,8 @@ const focusWorker = (): string => {
   }
   return best
 }
-const liveText = (key: string): string => ((st.liveAt[key] ?? 0) + LIVE_TTL > Date.now() ? st.live[key] ?? '' : '')
+let lean = false // last resort when the scene is still too big: no thought bubbles
+const liveText = (key: string): string => (lean ? '' : (st.liveAt[key] ?? 0) + LIVE_TTL > Date.now() ? st.live[key] ?? '' : '')
 const staticWords = (markup: string) => markup.replace(/class="wd w\d+"/g, 'class="wk"')
 const WORKER_NAME: Record<string, string> = { cx: 'Codex', ds: 'DeepSeek', gp: 'ChatGPT' }
 const HAND_OPEN = ["ê", "nè", "này", "ơi", "cu ơi", "bồ ơi"]
@@ -841,17 +842,48 @@ const CHECK = bubbleCv(13, 12, false)
 })
 
 // ---------- the person ----------
+// Several chibi people take turns: the one that turns up depends on what the prompt is about.
+type Look = {
+  id: string
+  hair: string
+  top: string
+  topD: string
+  pants: string
+  pantsD: string
+  shoe: string
+  hat: 'none' | 'hard' | 'chef' | 'cap' | 'beret'
+  hatCol: string
+  glasses: boolean
+  bib: 'none' | 'overall' | 'apron' | 'vest' | 'smock' | 'cardigan'
+  weapon: 'whip' | 'wrench' | 'ruler' | 'pan' | 'gun' | 'brush'
+  hits: string[]
+  says: string[]
+  kw: RegExp | null
+}
+const LOOKS: Look[] = [
+  { id: 'whip', hair: '#15151c', top: '#2f3d7c', topD: '#252f66', pants: '#4b5799', pantsD: '#3c477f', shoe: '#f4f4f4', hat: 'none', hatCol: '', glasses: false, bib: 'none', weapon: 'whip', hits: ['chát!', 'bốp!', 'chát!', 'vút!'], says: [], kw: null },
+  { id: 'mech', hair: '#3a2a1c', top: '#e6e1d0', topD: '#cfc9b6', pants: '#e07a1f', pantsD: '#b85e12', shoe: '#5a4a3a', hat: 'hard', hatCol: '#ffcc33', glasses: false, bib: 'overall', weapon: 'wrench', hits: ['keng!', 'boong!', 'cạch!'], says: ["để tao vặn ốc mày!", "máy hư thì đập là hết!", "dậy, có bug cần sửa!", "mày hỏng rồi, vặn cái nè!"], kw: /bug|lỗi|fix|sửa|error|crash|debug|hỏng|fail|exception|traceback/i },
+  { id: 'teach', hair: '#5a3a24', top: '#8a5a3c', topD: '#6e4529', pants: '#3b3f55', pantsD: '#2d3044', shoe: '#2a2020', hat: 'none', hatCol: '', glasses: true, bib: 'cardigan', weapon: 'ruler', hits: ['bốp!', 'cạch!', 'chát!'], says: ["chép phạt 100 lần nè!", "đưa tay ra cô đánh!", "dậy học bài, mau!", "không thuộc bài là ăn thước!"], kw: /giải thích|explain|học|dạy|tài liệu|docs?\b|readme|viết|dịch|translate|vì sao|tại sao|why\b|how\b/i },
+  { id: 'chef', hair: '#2a2a33', top: '#f2f2f2', topD: '#d6d9e2', pants: '#3a3d4c', pantsD: '#2c2f3c', shoe: '#222', hat: 'chef', hatCol: '#ffffff', glasses: false, bib: 'apron', weapon: 'pan', hits: ['xoảng!', 'boong!', 'keng!'], says: ["dậy, bếp nóng rồi!", "dọn cho sạch nha mày!", "chảo này có tên mày đó!", "trộn gọn lại cho tao!"], kw: /refactor|dọn|clean|tối ưu|optimi[sz]e|nấu|gọn|format|lint/i },
+  { id: 'ranger', hair: '#23202a', top: '#3f7a4f', topD: '#2f5f3c', pants: '#5a5a48', pantsD: '#444436', shoe: '#2a2a22', hat: 'cap', hatCol: '#d33a3a', glasses: false, bib: 'vest', weapon: 'gun', hits: ['pằng!', 'píu!', 'pằng!'], says: ["đứng yên, tao bắn nha!", "dậy, deadline đuổi tới rồi!", "giơ tay lên, đi làm!", "lên đạn, cày thôi!"], kw: /deploy|release|security|bảo mật|gấp|urgent|asap|deadline|prod\b|build|ship|push/i },
+  { id: 'artist', hair: '#6b3a8c', top: '#f1efe8', topD: '#d8d4c6', pants: '#2f6f8f', pantsD: '#235874', shoe: '#e8e8e8', hat: 'beret', hatCol: '#7a4bd0', glasses: false, bib: 'smock', weapon: 'brush', hits: ['xẹt!', 'bẹt!', 'xẹt!'], says: ["dậy tô màu cho đời nè!", "mặt mày cần thêm sơn!", "tao vẽ râu cho mày nha!", "nghệ thuật đòi hỏi kỷ luật!"], kw: /\bui\b|giao diện|design|thiết kế|css|màu|layout|style|font|nút|button|icon|ảnh|image/i },
+]
+const LOOK_ORDER = ['ranger', 'mech', 'artist', 'chef', 'teach']
+const pickLook = (text: string): Look => {
+  for (const id of LOOK_ORDER) {
+    const l = LOOKS.find(x => x.id === id)!
+    if (l.kw !== null && l.kw.test(text)) return l
+  }
+  const bag = [...LOOKS, LOOKS[0]!] // the classic whip-wielder turns up a bit more often
+  return bag[Math.floor(Math.random() * bag.length)]!
+}
+const INK = '#1a1420'
 const SK = '#f4c9a4'
 const SKD = '#e0aa82'
-const HAIR = '#15151c'
-const NAVY = '#2f3d7c'
-const NAVYD = '#252f66'
-const PANTS = '#4b5799'
-const INK = '#1a1420'
 const CXH = 17
 const OY = 8
 
-const limb = (c: Cv, pts: [number, number][], thick: number, col: string, sleeve = 0) => {
+const limb = (c: Cv, pts: [number, number][], thick: number, col: string, sleeve = 0, sleeveCol = '#2f3d7c') => {
   for (let i = 0; i < pts.length - 1; i++) {
     const [x0, y0] = pts[i]!
     const [x1, y1] = pts[i + 1]!
@@ -860,15 +892,16 @@ const limb = (c: Cv, pts: [number, number][], thick: number, col: string, sleeve
       const x = Math.round(x0 + ((x1 - x0) * s) / n)
       const y = Math.round(y0 + ((y1 - y0) * s) / n)
       const isSleeve = i === 0 && s <= sleeve
-      c.rect(x - Math.floor(thick / 2), y - Math.floor(thick / 2), thick, thick, isSleeve ? NAVY : col)
+      c.rect(x - Math.floor(thick / 2), y - Math.floor(thick / 2), thick, thick, isSleeve ? sleeveCol : col)
     }
   }
 }
 
-const heroHead = (dx: number, look: number) => {
+const heroHead = (dx: number, look: number, L: Look) => {
   const c = new Cv(34, 26)
   const cx = CXH + dx
   const cy = OY + 6
+  const HAIR = L.hair
   c.each((x, y) => {
     const u = (x + 0.5 - cx) / 9.5
     const v = (y + 0.5 - cy) / 9
@@ -876,7 +909,7 @@ const heroHead = (dx: number, look: number) => {
   })
   c.rect(Math.round(cx) - 11, cy + 1, 2, 4, SK)
   c.rect(Math.round(cx) + 9, cy + 1, 2, 4, SK)
-  // short black hair: a cap, a side-swept fringe and a few spikes
+  // hair: a cap, a side-swept fringe and (without a hat) a few spikes
   c.each((x, y) => {
     const u = (x + 0.5 - cx) / 10.5
     const v = (y + 0.5 - (cy - 1)) / 10
@@ -885,8 +918,10 @@ const heroHead = (dx: number, look: number) => {
     const side = Math.abs(x + 0.5 - cx) > 8 && y < cy + 1
     return y < fringe || side ? HAIR : undefined
   })
-  for (const [x, y, w, h] of [[-6, -10, 3, 3], [-2, -12, 3, 4], [2, -11, 3, 3], [6, -9, 2, 3]] as const) c.rect(Math.round(cx) + x, cy + y, w, h, HAIR)
-  c.rect(Math.round(cx) - 4, cy - 8, 5, 1, '#34344a')
+  if (L.hat === 'none') {
+    for (const [x, y, w, h] of [[-6, -10, 3, 3], [-2, -12, 3, 4], [2, -11, 3, 3], [6, -9, 2, 3]] as const) c.rect(Math.round(cx) + x, cy + y, w, h, HAIR)
+    c.rect(Math.round(cx) - 4, cy - 8, 5, 1, '#34344a')
+  }
   const ex = Math.round(cx + look)
   for (const x of [ex - 5, ex + 3]) {
     c.rect(x - 1, cy - 1, 4, 1, HAIR)
@@ -898,38 +933,95 @@ const heroHead = (dx: number, look: number) => {
   c.rect(ex - 1, cy + 7, 3, 1, '#a8543f')
   c.set(ex + 2, cy + 6, '#a8543f')
   c.rect(Math.round(cx) - 3, cy + 9, 6, 1, SKD)
+  const X = Math.round(cx)
+  if (L.glasses) {
+    for (const lx of [ex - 7, ex + 1]) {
+      c.rect(lx, cy - 2, 6, 1, '#2a2a33')
+      c.rect(lx, cy + 3, 6, 1, '#2a2a33')
+      c.rect(lx, cy - 2, 1, 6, '#2a2a33')
+      c.rect(lx + 5, cy - 2, 1, 6, '#2a2a33')
+    }
+    c.rect(ex - 1, cy, 2, 1, '#2a2a33')
+  }
+  if (L.hat === 'hard') {
+    c.rect(X - 8, cy - 8, 16, 4, L.hatCol)
+    c.rect(X - 6, cy - 11, 12, 3, L.hatCol)
+    c.rect(X - 11, cy - 4, 22, 2, '#e0a800')
+    c.rect(X - 1, cy - 11, 2, 7, '#e0a800')
+  } else if (L.hat === 'chef') {
+    c.rect(X - 8, cy - 8, 16, 3, L.hatCol)
+    c.rect(X - 8, cy - 13, 16, 5, L.hatCol)
+    c.rect(X - 5, cy - 14, 10, 1, L.hatCol)
+    c.rect(X - 8, cy - 6, 16, 1, '#dfe3ee')
+    c.rect(X - 3, cy - 12, 1, 4, '#dfe3ee')
+    c.rect(X + 3, cy - 12, 1, 4, '#dfe3ee')
+  } else if (L.hat === 'cap') {
+    c.rect(X - 9, cy - 8, 18, 5, L.hatCol)
+    c.rect(X - 6, cy - 10, 12, 2, L.hatCol)
+    c.rect(X - 1, cy - 4, 13, 2, '#a82020')
+  } else if (L.hat === 'beret') {
+    c.rect(X - 10, cy - 8, 17, 3, L.hatCol)
+    c.rect(X - 8, cy - 10, 14, 2, L.hatCol)
+    c.rect(X - 2, cy - 12, 3, 2, L.hatCol)
+    c.rect(X - 9, cy - 5, 14, 1, '#5a36a8')
+  }
   return c
 }
 
-const heroTorso = () => {
+const heroTorso = (L: Look) => {
   const c = new Cv(34, 52)
   const t = OY + 15
   c.rect(CXH - 3, t - 2, 6, 4, SKD)
-  c.rect(CXH - 8, t + 2, 16, 1, NAVY)
-  c.rect(CXH - 7, t + 2, 14, 12, NAVY)
-  c.rect(CXH - 8, t + 3, 16, 10, NAVY)
-  c.rect(CXH + 3, t + 3, 5, 10, NAVYD)
-  c.rect(CXH - 7, t + 13, 14, 1, NAVYD)
+  c.rect(CXH - 8, t + 2, 16, 1, L.top)
+  c.rect(CXH - 7, t + 2, 14, 12, L.top)
+  c.rect(CXH - 8, t + 3, 16, 10, L.top)
+  c.rect(CXH + 3, t + 3, 5, 10, L.topD)
+  c.rect(CXH - 7, t + 13, 14, 1, L.topD)
   c.rect(CXH - 3, t + 2, 6, 1, '#e4e8ff')
   c.rect(CXH - 2, t + 3, 4, 1, '#e4e8ff')
   c.rect(CXH - 1, t + 4, 2, 1, '#e4e8ff')
-  c.rect(CXH, t + 5, 1, 6, '#1b2350')
-  c.set(CXH - 1, t + 6, '#e4e8ff')
-  c.set(CXH - 1, t + 9, '#e4e8ff')
+  if (L.bib === 'none') {
+    c.rect(CXH, t + 5, 1, 6, '#1b2350')
+    c.set(CXH - 1, t + 6, '#e4e8ff')
+    c.set(CXH - 1, t + 9, '#e4e8ff')
+  } else if (L.bib === 'overall') {
+    c.rect(CXH - 6, t + 6, 12, 8, L.pants)
+    c.rect(CXH - 6, t + 2, 2, 5, L.pants)
+    c.rect(CXH + 4, t + 2, 2, 5, L.pants)
+    c.rect(CXH - 3, t + 8, 6, 3, L.pantsD)
+    c.set(CXH - 5, t + 6, '#ffd45e')
+    c.set(CXH + 4, t + 6, '#ffd45e')
+  } else if (L.bib === 'apron') {
+    c.rect(CXH - 6, t + 5, 12, 9, '#fafafa')
+    c.rect(CXH - 4, t + 8, 8, 3, '#e4e7ef')
+    c.rect(CXH - 1, t + 3, 2, 3, '#fafafa')
+  } else if (L.bib === 'vest') {
+    c.rect(CXH - 7, t + 3, 5, 10, '#2f5f3c')
+    c.rect(CXH + 2, t + 3, 5, 10, '#2f5f3c')
+    c.rect(CXH - 6, t + 8, 3, 3, '#244a2f')
+    c.rect(CXH + 3, t + 8, 3, 3, '#244a2f')
+    c.rect(CXH, t + 4, 1, 9, '#e4e8ff')
+  } else if (L.bib === 'smock') {
+    for (const [x, y, col] of [[-5, 5, '#ff4f72'], [2, 8, '#4fc3ff'], [-2, 11, '#ffd45e'], [4, 4, '#7bd88f']] as const) c.rect(CXH + x, t + y, 2, 2, col)
+  } else {
+    c.rect(CXH - 1, t + 4, 2, 9, '#e4e8ff')
+    c.rect(CXH - 6, t + 10, 4, 3, L.topD)
+    c.rect(CXH + 2, t + 10, 4, 3, L.topD)
+  }
   return c
 }
 
-const heroLegs = (stance: 'close' | 'wide', lift: 'L' | 'R' | null) => {
+const heroLegs = (stance: 'close' | 'wide', lift: 'L' | 'R' | null, L: Look) => {
   const c = new Cv(34, 52)
   const top = OY + 29
   const gap = stance === 'wide' ? 4 : 0
   const lx = CXH - 7 - gap / 2
   const rx = CXH + 2 + gap / 2
   const draw = (x: number, up: number) => {
-    c.rect(x, top, 5, 6 - up, PANTS)
-    c.rect(x + 3, top, 2, 6 - up, '#3c477f')
+    c.rect(x, top, 5, 6 - up, L.pants)
+    c.rect(x + 3, top, 2, 6 - up, L.pantsD)
     c.rect(x - 1, top + 6 - up, 7, 2, INK)
-    c.rect(x - 1, top + 7 - up, 7, 1, '#f4f4f4')
+    c.rect(x - 1, top + 7 - up, 7, 1, L.shoe)
   }
   draw(Math.round(lx), lift === 'L' ? 2 : 0)
   draw(Math.round(rx), lift === 'R' ? 2 : 0)
@@ -937,7 +1029,7 @@ const heroLegs = (stance: 'close' | 'wide', lift: 'L' | 'R' | null) => {
 }
 
 type Pose = 'A' | 'B' | 'R' | 'W1' | 'W2' | 'W3'
-const heroArms = (pose: Pose) => {
+const heroArms = (pose: Pose, L: Look) => {
   const c = new Cv(40, 52)
   const ls = [CXH - 8, OY + 18] as [number, number]
   const rs = [CXH + 8, OY + 18] as [number, number]
@@ -945,30 +1037,31 @@ const heroArms = (pose: Pose) => {
     c.rect(x - 1, y - 1, 3, 3, SK)
     c.rect(x, y, 2, 2, SKD)
   }
+  const arm = (pts: [number, number][]) => limb(c, pts, 3, SK, 3, L.top)
   if (pose === 'A' || pose === 'B') {
     const up = pose === 'A' ? ls : rs
     const dn = pose === 'A' ? rs : ls
     const s = pose === 'A' ? -1 : 1
-    limb(c, [up, [up[0] + s * 6, up[1]], [up[0] + s * 6, up[1] - 8]], 3, SK, 3)
+    arm([up, [up[0] + s * 6, up[1]], [up[0] + s * 6, up[1] - 8]])
     hand(up[0] + s * 6, up[1] - 10)
-    limb(c, [dn, [dn[0] - s * 6, dn[1]], [dn[0] - s * 6, dn[1] + 8]], 3, SK, 3)
+    arm([dn, [dn[0] - s * 6, dn[1]], [dn[0] - s * 6, dn[1] + 8]])
     hand(dn[0] - s * 6, dn[1] + 9)
   } else if (pose === 'R') {
-    limb(c, [ls, [ls[0] - 2, ls[1] + 9]], 3, SK, 3)
-    limb(c, [rs, [rs[0] + 2, rs[1] + 9]], 3, SK, 3)
+    arm([ls, [ls[0] - 2, ls[1] + 9]])
+    arm([rs, [rs[0] + 2, rs[1] + 9]])
     hand(ls[0] - 2, ls[1] + 10)
     hand(rs[0] + 2, rs[1] + 10)
   } else {
-    limb(c, [ls, [ls[0] - 4, ls[1] + 4], [ls[0] + 1, ls[1] + 8]], 3, SK, 3)
+    arm([ls, [ls[0] - 4, ls[1] + 4], [ls[0] + 1, ls[1] + 8]])
     hand(ls[0] + 2, ls[1] + 9)
     if (pose === 'W1') {
-      limb(c, [rs, [rs[0] + 4, rs[1] - 8], [rs[0] + 5, rs[1] - 17]], 3, SK, 3)
+      arm([rs, [rs[0] + 4, rs[1] - 8], [rs[0] + 5, rs[1] - 17]])
       hand(rs[0] + 5, rs[1] - 19)
     } else if (pose === 'W2') {
-      limb(c, [rs, [rs[0] + 5, rs[1] - 6], [rs[0] + 8, rs[1] - 14]], 3, SK, 3)
+      arm([rs, [rs[0] + 5, rs[1] - 6], [rs[0] + 8, rs[1] - 14]])
       hand(rs[0] + 8, rs[1] - 16)
     } else {
-      limb(c, [rs, [rs[0] + 8, rs[1] - 1]], 3, SK, 3)
+      arm([rs, [rs[0] + 8, rs[1] - 1]])
       hand(rs[0] + 9, rs[1] - 1)
     }
   }
@@ -977,19 +1070,67 @@ const heroArms = (pose: Pose) => {
 
 const HX = 1
 const HY = 47 // the shoes end 45 rows below the top of the person's sprite, so this puts them on the ground (GH = 92)
-const heroPose = (pose: Pose) => {
+const heroPose = (pose: Pose, L: Look) => {
   const wide = pose === 'W1' || pose === 'W2' || pose === 'W3'
   const dx = pose === 'A' ? -1 : pose === 'B' ? 1 : 0
   const look = pose === 'A' ? -1 : pose === 'B' ? 1 : wide ? 1 : 0
   const lift = pose === 'A' ? 'L' : pose === 'B' ? 'R' : null
-  return [heroLegs(wide ? 'wide' : 'close', lift), heroTorso(), heroArms(pose), heroHead(dx, look)].map(c => c.svg(HX, HY)).join('')
+  return [heroLegs(wide ? 'wide' : 'close', lift, L), heroTorso(L), heroArms(pose, L), heroHead(dx, look, L)].map(c => c.svg(HX, HY)).join('')
 }
-// where the whip leaves the hand in each pose, in left-group coordinates
+// where the weapon is held in each pose, in left-group coordinates
 const HAND: Record<'W1' | 'W2' | 'W3', [number, number]> = {
   W1: [HX + CXH + 14, HY + OY - 3],
   W2: [HX + CXH + 17, HY + OY],
   W3: [HX + CXH + 19, HY + OY + 17],
 }
+
+// the things people hit Claude's friends with: the grip is at x = 0, the business end points right
+const weaponCv = (kind: Look['weapon']): Cv => {
+  if (kind === 'wrench') {
+    const c = new Cv(18, 8)
+    c.rect(0, 3, 13, 2, '#9aa3b5')
+    c.rect(12, 1, 5, 2, '#9aa3b5')
+    c.rect(12, 5, 5, 2, '#9aa3b5')
+    c.rect(12, 3, 2, 2, '#9aa3b5')
+    c.rect(1, 3, 6, 1, '#c7cfde')
+    c.edge('#434b5e')
+    return c
+  }
+  if (kind === 'ruler') {
+    const c = new Cv(20, 5)
+    c.rect(0, 1, 19, 3, '#ffd45e')
+    for (let x = 2; x < 19; x += 3) c.rect(x, 1, 1, 2, '#9a6b00')
+    c.edge('#6e4c00')
+    return c
+  }
+  if (kind === 'pan') {
+    const c = new Cv(20, 12)
+    c.rect(0, 5, 10, 2, '#5a4632')
+    c.each((x, y) => (Math.hypot(x - 14.5, y - 5.5) <= 5.2 ? '#2c2c36' : undefined))
+    c.rect(11, 2, 3, 1, '#5b5b6c')
+    c.edge('#15151c')
+    return c
+  }
+  if (kind === 'gun') {
+    const c = new Cv(18, 11)
+    c.rect(0, 2, 10, 4, '#58d6ee')
+    c.rect(1, 6, 3, 5, '#34425c')
+    c.rect(10, 3, 5, 2, '#cfd8e8')
+    c.rect(15, 3, 1, 2, '#ff4d6d')
+    c.rect(3, 3, 4, 1, '#d9fbff')
+    c.edge('#1e2a40')
+    return c
+  }
+  const c = new Cv(20, 6) // brush
+  c.rect(0, 2, 13, 2, '#c58b52')
+  c.rect(13, 2, 2, 2, '#d0d0d8')
+  c.rect(15, 1, 4, 4, '#ff4f72')
+  c.rect(18, 2, 1, 2, '#ff9bb2')
+  c.edge('#5a3a20')
+  return c
+}
+const WANGLE = { W1: -130, W2: -55, W3: 14 } as const
+const GANGLE = { W1: -50, W2: -28, W3: 0 } as const
 
 // ---------- scene pieces ----------
 const FLOOR = 72 // the ground line; every character stands on it
@@ -1136,18 +1277,20 @@ const slotSleep = (c: Creature, B: number, bx: number) => {
 <g class="zz zz1">${ZZZ.svg(bx + 6, B - 31)}</g><g class="zz zz2">${ZZZ.svg(bx + 12, B - 36)}</g></g>`
 }
 
+const workerBubbles = (c: Creature, bubX: (w: number) => number, bubTop: number): string => `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g>${!lean && focusWorker() === c.id && (liveText(c.id) !== '' || st.wTask[c.id]) ? `<g class="think think-${c.id}">${staticWords(speech(liveText(c.id) !== '' ? liveText(c.id) : fitN(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`, TS_W, 4, 12), true, bubX, bubTop, TS_SCALE))}</g>` : ''}`
 const awakeCache = new Map<string, string>()
 const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) => {
   const key = `${c.id}|${B}|${ax}|${bx}|${gw}`
+  const bubX = (w: number) => Math.max(0, Math.min(gw - w, bx + 15 - Math.round(w / 2)))
+  const bubTop = B - 46
+  const fresh = (t: string) => (c.id === 'cl' ? t : t.replace('@@BUB@@', () => workerBubbles(c, bubX, bubTop)))
   const hit0 = awakeCache.get(key)
-  if (hit0 !== undefined) return hit0
+  if (hit0 !== undefined) return fresh(hit0)
   const A = c.awake('awake')
   const D = c.awake('dazed')
   const ay = B - A.h
   const cx = ax + Math.round(A.w / 2)
   const lap = laptopCv().svg(cx - 10, B - 22)
-  const bubX = (w: number) => Math.max(0, Math.min(gw - w, bx + 15 - Math.round(w / 2)))
-  const bubTop = B - 46
   const worker = c.id !== 'cl'
   const hit = HIT.svg(cx - 6, ay - 9) + [[-16, -4], [12, -6], [-13, 5], [10, 7]].map(([dx, dy]) => SPARK.svg(cx + dx! - 2, ay + dy!)).join('')
   const au = [0, 1].map(i => `<g class="ar${i}">${auraCv(A.w + 12, A.h + 12, i).svg(ax - 6, B - A.h - 12)}</g>`).join('')
@@ -1157,13 +1300,13 @@ const slotAwake = (c: Creature, B: number, ax: number, bx: number, gw: number) =
 <g class="hit hit-${c.id}">${hit}</g><g class="vein">${VEIN.svg(cx + 8, ay - 3)}</g><g class="stm stm1"><path fill="#e8ecff" d="M${cx - 6} ${ay - 2}h3v3h-3z"/></g><g class="stm stm2"><path fill="#e8ecff" d="M${cx + 3} ${ay - 5}h3v3h-3z"/></g>
 ${
   worker
-    ? `<g class="shout shout-${c.id}">${speech(WORKER_SHOUT_POOL[(st.wShout[c.id] ?? 0) % WORKER_SHOUT_POOL.length]!, true, bubX, bubTop)}</g><g class="wsay wsay-${c.id}">${speech(WORKER_RECV_POOL[(st.wRecv[c.id] ?? 0) % WORKER_RECV_POOL.length]!, true, bubX, bubTop)}</g>${focusWorker() === c.id && (liveText(c.id) !== '' || st.wTask[c.id]) ? `<g class="think think-${c.id}">${staticWords(speech(liveText(c.id) !== '' ? liveText(c.id) : fitN(`${THINK_VERB[(st.wVerb[c.id] ?? 0) % THINK_VERB.length]} ${st.wTask[c.id]}`, TS_W, 5, 16), true, bubX, bubTop, TS_SCALE))}</g>` : ''}<g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
+    ? `@@BUB@@<g class="spk spk-${c.id}">${SPARK.svg(bx + 21, B - 34)}</g>`
     : `<g class="tab"><g class="tshake">${tabletCv().svg(ax + A.w - 8, ay + 3)}<g class="ping"><path fill="#ff4d4d" d="M${ax + A.w + 1} ${ay + 4}h2v2h-2z"/></g></g></g>`
 }
 </g>
 <g class="pk pk-${c.id}-in">${envCv('#ffd988', '#8a5a1c').svg(cx - 5, ay - 4)}</g><g class="pk pk-${c.id}-out">${envCv('#8fe3ac', '#1b5a34').svg(cx - 5, ay - 4)}</g>`
   awakeCache.set(key, out)
-  return out
+  return fresh(out)
 }
 
 // ---------- the two groups ----------
@@ -1177,35 +1320,47 @@ const whipPts = (pose: 'W1' | 'W2' | 'W3'): [number, number][] => {
 }
 
 // what is always drawn on the left: the dancing person (three poses) and Claude's bed
-const leftStatic = () => {
+const leftStatic = (L: Look) => {
   const poses: Pose[] = ['A', 'B', 'R']
   return `${slotSleep(CAST[0]!, GH, CSX)}
-${poses.map(p => `<g class="p${p}">${heroPose(p)}</g>`).join('')}
+${poses.map(p => `<g class="p${p}">${heroPose(p, L)}</g>`).join('')}
 <g class="heart">${HEART.svg(HX + CXH - 4, HY - 6)}</g><g class="cbub">${CHECK.svg(CSX + 18, GH - 44)}</g>`
 }
-const whipCache: { v?: string } = {}
-// drawn only while the prompt is being whipped in
-const whipExtras = () => {
-  if (whipCache.v !== undefined) return whipCache.v
-  const tx = CSX + 14
-  const ty = GH - 18
-  const sparks = [[0, -6], [-9, -3], [9, -3], [-6, 5], [6, 5]].map(([dx, dy]) => SPARK.svg(tx + dx! - 2, ty + dy!)).join('')
-  const rings = [5, 9, 13].map((r, i) => `<g class="ring ring${i}">${ringCv(r).svg(tx - r - 1, ty - r - 1)}</g>`).join('')
-  const chat = [0, 1].map(i => `<g class="chat chat${i}">${burstText(CHAT_POOL[(st.chatT + i) % CHAT_POOL.length]!).svg(LW - 45 - i * 2, GH - 70 - i * 4)}</g>`).join('')
-  const streaks = new Cv(LW, GH)
-  for (const [dx, dy, len] of [[3, -3, 7], [6, 1, 9], [2, 4, 6]] as const) streaks.rect(HAND.W3[0] + dx, HAND.W3[1] + dy, len, 1, '#ffffff')
-  const poses: Pose[] = ['W1', 'W2', 'W3']
-  whipCache.v = `${poses.map(p => `<g class="p${p}">${heroPose(p)}</g>`).join('')}
-${(['W1', 'W2', 'W3'] as const).map(p => `<g class="w${p}">${poly(LW, GH, whipPts(p), '#f1e2b0').svg(0, 0)}</g>`).join('')}
-<g class="wcrack">${sparks}${streaks.svg(0, 0)}</g>${rings}${chat}
+const whipCache: Record<string, string> = {}
+// drawn only while the prompt is being whipped in: the three striking poses, the weapon, and what it does to Claude's bed
+const whipExtras = (L: Look) => {
+  if (whipCache[L.id] === undefined) {
+    const tx = CSX + 14
+    const ty = GH - 18
+    const sparks = [[0, -6], [-9, -3], [9, -3], [-6, 5], [6, 5]].map(([dx, dy]) => SPARK.svg(tx + dx! - 2, ty + dy!)).join('')
+    const rings = [5, 9, 13].map((r, i) => `<g class="ring ring${i}">${ringCv(r).svg(tx - r - 1, ty - r - 1)}</g>`).join('')
+    const streaks = new Cv(LW, GH)
+    if (L.weapon === 'whip' || L.weapon === 'ruler') for (const [dx, dy, len] of [[3, -3, 7], [6, 1, 9], [2, 4, 6]] as const) streaks.rect(HAND.W3[0] + dx, HAND.W3[1] + dy, len, 1, '#ffffff')
+    const poses: Pose[] = ['W1', 'W2', 'W3']
+    const arms = (['W1', 'W2', 'W3'] as const)
+      .map(p => {
+        if (L.weapon === 'whip') return `<g class="w${p}">${poly(LW, GH, whipPts(p), '#f1e2b0').svg(0, 0)}</g>`
+        const [hx, hy] = HAND[p]
+        const wc = weaponCv(L.weapon)
+        const ang = L.weapon === 'gun' ? GANGLE[p] : WANGLE[p]
+        const beam = L.weapon === 'gun' && p === 'W3' ? poly(LW, GH, [[hx + 17, hy], [CSX + 14, GH - 16]], '#7fe3ff').svg(0, 0) : ''
+        return `<g class="w${p}"><g transform="translate(${hx} ${hy}) rotate(${ang})">${wc.svg(-1, -Math.floor(wc.h / 2))}</g>${beam}</g>`
+      })
+      .join('\n')
+    whipCache[L.id] = `${poses.map(p => `<g class="p${p}">${heroPose(p, L)}</g>`).join('')}
+${arms}
+<g class="wcrack">${sparks}${streaks.svg(0, 0)}</g>${rings}
 <g class="bang"><path fill="#ff4f72" d="M${CSX + 16} ${GH - 36}h2v6h-2zM${CSX + 16} ${GH - 28}h2v2h-2z"/></g>`
-  return whipCache.v
+  }
+  const chat = [0, 1].map(i => `<g class="chat chat${i}">${burstText(L.hits[(st.chatT + i) % L.hits.length]!).svg(LW - 45 - i * 2, GH - 70 - i * 4)}</g>`).join('')
+  return whipCache[L.id] + chat
 }
 const thinkCl = () => `<g class="think think-cl">${staticWords(speech(liveText('cl'), false, w => LW - w, HY + 1, TS_SCALE))}</g>`
 const csayMarkup = () => `<g class="csay">${speech(CLAUDE_RECV_POOL[st.cRecv % CLAUDE_RECV_POOL.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const rightStatic = () => CAST.slice(1).map((c, i) => slotSleep(c, GH, i * 30)).join('\n')
-const LEFT_STATIC = leftStatic()
+const leftStaticCache: Record<string, string> = {}
+const leftStaticFor = (L: Look) => (leftStaticCache[L.id] ??= leftStatic(L))
 const RIGHT_STATIC = rightStatic()
 
 // ---------- animation helpers ----------
@@ -1466,6 +1621,8 @@ const st = {
   wShout: {} as Record<string, number>,
   chatT: 0,
   hTask: '',
+  look: LOOKS[0]!,
+  promptText: '',
   oops: null as null | { who: string; at: number },
   chat: null as null | { who: string; text: string; at: number },
   wins: 0,
@@ -1518,7 +1675,8 @@ const cloud = (x: number, y: number, c: string) =>
   `<g fill="${c}"><rect x="${x + 2}" y="${y}" width="8" height="2"/><rect x="${x}" y="${y + 2}" width="14" height="2"/></g>`
 
 // the lines people say (changes with each prompt / hand-over)
-const heroSay = () => `<g class="hsay">${speech(joinSay(HERO_SAY[st.hSay % HERO_SAY.length]!, st.hTask), true, () => 0, HY + 1)}</g>`
+const heroLine = (): string => (st.hSay >= 1000 ? st.look.says[st.hSay - 1000] : undefined) ?? HERO_SAY[st.hSay >= 1000 ? 0 : st.hSay % HERO_SAY.length]!
+const heroSay = () => `<g class="hsay">${speech(joinSay(heroLine(), st.hTask), true, () => 0, HY + 1)}</g>`
 const claudeSay = () => `<g class="say-b">${speech(st.cLine !== '' ? st.cLine : CLAUDE_SAY[st.cSay % CLAUDE_SAY.length]!, false, w => LW - w, HY + 1)}</g>`
 
 const active = (w: string) => st.awake.has(w) || st.send.has(w) || st.recv.has(w) || st.rage.has(w)
@@ -1530,7 +1688,7 @@ const chatBubble = (who: string) => {
 const leftDynamic = () => {
   if (st.phase === 'idle') return chatBubble('hero') + chatBubble('cl')
   let o = slotAwake(CAST[0]!, GH, CSX + 4, CSX, LW)
-  if (st.phase === 'whip') o += whipExtras() + heroSay()
+  if (st.phase === 'whip') o += whipExtras(st.look) + heroSay()
   if (st.oops !== null && st.oops.who === 'cl') o += `<g transform="translate(${CSX + 14} ${GH - 56})">${oopsMarkup('cl')}</g>`
   if (st.phase === 'done') o += `<g class="zbub">${staticWords(speech(PRAISE[st.praise % PRAISE.length]!, true, () => 0, HY + 1, TS_SCALE))}</g>`
   if (st.fresh) o += csayMarkup()
@@ -1547,7 +1705,7 @@ const rightDynamic = () =>
     })
     .join('\n')
 
-const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${LEFT_STATIC}${leftDynamic()}</svg></g>
+const sceneStatic = () => `<g class="Lg"><svg x="0" y="0" width="${LW * KD}" height="${GH * KD}" viewBox="0 0 ${LW} ${GH}" preserveAspectRatio="xMinYMax meet">${leftStaticFor(st.look)}${leftDynamic()}</svg></g>
 <g class="Rg"><svg x="0" y="0" width="${RW * KD}" height="${GH * KD}" viewBox="0 0 ${RW} ${GH}" preserveAspectRatio="xMaxYMax meet">${RIGHT_STATIC}${rightDynamic()}</svg></g>
 <g class="Gf">${GROUND.front.svg(0, FLOOR - 2)}</g>`
 
@@ -1620,8 +1778,15 @@ ${winsMarkup()}
 
 // The app refuses a scene over 131,072 characters, so drop the stars and clouds if it gets close.
 const buildScene = (now: number) => {
+  lean = false
   const full = buildSceneWith(now, true)
-  return full.length > 126000 ? buildSceneWith(now, false) : full
+  if (full.length <= 126000) return full
+  const bare = buildSceneWith(now, false)
+  if (bare.length <= 130000) return bare
+  lean = true
+  const out = buildSceneWith(now, false)
+  lean = false
+  return out
 }
 
 const note = (wave: 'square' | 'triangle', notes: string[], step: number) => ({
@@ -1674,7 +1839,8 @@ const startWhip = () => {
   const gen = ++st.gen
   st.chat = null
   mainBusy = true
-  st.hSay = firstLine ? 0 : pickNot(HERO_SAY, st.hSay)
+  st.look = pickLook(st.promptText)
+  st.hSay = firstLine ? 0 : st.look.says.length > 0 && Math.random() < 0.55 ? 1000 + Math.floor(Math.random() * st.look.says.length) : pickNot(HERO_SAY, st.hSay >= 1000 ? 0 : st.hSay)
   st.tempo = [0.2, 0.25, 0.3, 0.4][Math.floor(Math.random() * 4)]!
   st.cRecv = pickNot(CLAUDE_RECV_POOL, st.cRecv)
   st.chatT = Math.floor(Math.random() * CHAT_POOL.length)
@@ -1924,6 +2090,7 @@ export const register: Register = (on, options) => {
     }
     st.hTask = brief(e.text, 4, 22)
     st.plan = brief(e.text, 5, 28)
+    st.promptText = e.text.slice(0, 600)
     startWhip()
     return next(e)
   })
@@ -1941,6 +2108,7 @@ export const register: Register = (on, options) => {
       if (st.phase === 'idle') {
         st.hTask = brief(e.text, 4, 22)
         st.plan = brief(e.text, 5, 28)
+        st.promptText = e.text.slice(0, 600)
         startWhip()
       }
     } else if (!agentWorker.has(e.agentId)) {

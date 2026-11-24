@@ -1,6 +1,6 @@
 {
   "name": "pixel-claude",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Pixel art theme: night-sky 8-bit backdrop, stair-step bubbles, retro palette, chiptune cues.",
   "userConfig": {
     "frosted": {
